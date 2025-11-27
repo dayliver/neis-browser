@@ -1,9 +1,12 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
-export function usePassword(getActiveWebview) {
-  const showLoginModal = ref(false);
-  const loginForm = ref({ id: '', password: '' });
+// ★★★ [핵심 수정] 함수 밖으로 뺐습니다 (전역 상태 공유) ★★★
+// 이제 어디서 usePassword를 호출해도 이 변수들은 하나로 공유됩니다.
+const showLoginModal = ref(false);
+const loginForm = ref({ id: '', password: '' });
 
+export function usePassword(getActiveWebview) {
+  
   // 저장된 비밀번호 로드
   const loadSavedPassword = async () => {
     const savedLogin = localStorage.getItem('auto_login_info');
@@ -33,14 +36,17 @@ export function usePassword(getActiveWebview) {
     } catch (err) { alert(err.message); }
   };
 
-  // ★ [핵심] 하드웨어 타이핑 로직 (IPC 리스너)
+  // 하드웨어 타이핑 로직 (IPC 리스너)
   const setupPasswordListeners = () => {
     if (!window.electron?.ipcRenderer) return;
 
-    // 핸들러 정의
     const handleTypeRequest = async () => {
       console.log('[Logic] 타이핑 요청 수신 -> 작업 시작');
-      const webview = getActiveWebview();
+      
+      // getActiveWebview가 함수 인자로 넘어왔거나, 
+      // 만약 undefined라면 외부에서 주입받아야 함.
+      // 보통 usePassword를 호출할 때 넣어주므로 사용 가능.
+      const webview = getActiveWebview ? getActiveWebview() : null;
       
       if (loginForm.value.password && webview) {
         webview.focus();
@@ -56,20 +62,17 @@ export function usePassword(getActiveWebview) {
       }
     };
 
-    // 리스너 등록
     window.electron.ipcRenderer.on('req-type-password-to-vue', handleTypeRequest);
 
-    // 클린업 (컴포넌트 해제 시 리스너 제거)
     onUnmounted(() => {
       window.electron.ipcRenderer.removeAllListeners('req-type-password-to-vue');
     });
   };
 
-  // 수동 실행 기능
+  // 수동 실행
   const executeAutoLogin = () => {
-    // 수동 실행도 동일한 로직을 타게 하거나, 직접 호출
-    const webview = getActiveWebview();
-    if(webview) webview.send('req-type-password'); // Preload에게 요청해서 역으로 다시 받음 (흐름 통일)
+    const webview = getActiveWebview ? getActiveWebview() : null;
+    if(webview) webview.send('req-type-password');
   };
 
   return {
