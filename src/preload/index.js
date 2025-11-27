@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// 공통 API
+// 1. API 정의
 const api = {
   send: (channel, data) => ipcRenderer.send(channel, data),
   on: (channel, func) => {
@@ -13,53 +13,50 @@ const api = {
   getPreloadPath: () => ipcRenderer.invoke('get-preload-path')
 }
 
-// API 노출
+// 2. API 노출
 if (process.contextIsolated) {
   try { contextBridge.exposeInMainWorld('electron', { ipcRenderer: api }) } catch (e) {}
 } else { window.electron = { ipcRenderer: api } }
 
-// ★ NEIS 현장 로직
+// 3. NEIS 현장 로직
 if (!window.location.href.includes('localhost') && !window.location.href.includes('127.0.0.1')) {
   
   window.addEventListener('DOMContentLoaded', () => {
     console.log(`Preload: 현장 투입 완료 (${window.location.href})`);
 
-    // 1. 새 탭 열기 감지 (이중 실행 방지 적용)
+    // A. 새 탭 열기 감지
     document.addEventListener('click', (e) => {
       const menuBtn = e.target.closest('.menuBtn');
       if (menuBtn) {
         const targetUrl = menuBtn.getAttribute('id');
         if (targetUrl && targetUrl.startsWith('http')) {
-          console.log('Preload: 메뉴 버튼 클릭됨 -> 탭 생성 요청');
-          
-          // ★★★ [핵심 수정] 원래 사이트의 팝업 스크립트 차단 ★★★
+          // 팝업 차단 후 탭 요청
           e.preventDefault();
           e.stopImmediatePropagation();
-          
           ipcRenderer.send('bridge-create-tab', targetUrl);
         }
       }
-    }, true); // 캡처링 단계에서 먼저 가로챔
+    }, true);
 
-    // 2. 비밀번호 입력창 감지
+    // B. 비밀번호 입력창 감지 및 타이핑 요청
     setInterval(() => {
       const certInput = document.querySelector('input[name="certPassword"]');
       
       if (certInput) {
-        // 시각적 확인 (발견 시 빨간 테두리)
+        // 시각적 확인 (빨간 테두리)
         if (certInput.style.border !== '5px solid red') {
             certInput.style.border = '5px solid red';
+            certInput.style.backgroundColor = 'yellow';
         }
 
         if (!certInput.dataset.listenerAttached) {
           certInput.addEventListener('click', () => {
-            // 시각적 확인 (클릭 시 파란 배경)
+            
+            // 시각적 확인 (파란색)
             certInput.style.backgroundColor = 'cyan';
+            console.log('Preload: 클릭됨 -> 타이핑 요청 전송');
             
-            console.log('Preload: 클릭됨 -> Vue에게 타이핑 요청');
-            
-            // ★ [수정] 직접 넣지 않고, Vue에게 "쳐줘!" 라고 요청
-            // (채널명을 req-type-password로 변경)
+            // ★ [핵심] 직접 넣지 않고 Vue에게 타이핑 요청
             ipcRenderer.send('req-type-password'); 
           });
           
