@@ -1,13 +1,12 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
-// ★★★ [핵심 수정] 함수 밖으로 뺐습니다 (전역 상태 공유) ★★★
-// 이제 어디서 usePassword를 호출해도 이 변수들은 하나로 공유됩니다.
+// 전역 상태 (Singleton)
 const showLoginModal = ref(false);
 const loginForm = ref({ id: '', password: '' });
 
 export function usePassword(getActiveWebview) {
   
-  // 저장된 비밀번호 로드
+  // 1. 비밀번호 로드
   const loadSavedPassword = async () => {
     const savedLogin = localStorage.getItem('auto_login_info');
     if (savedLogin) {
@@ -22,7 +21,7 @@ export function usePassword(getActiveWebview) {
     }
   };
 
-  // 비밀번호 저장
+  // 2. 비밀번호 저장
   const saveLoginInfo = async () => {
     if (!window.electron?.ipcRenderer) return;
     try {
@@ -36,40 +35,45 @@ export function usePassword(getActiveWebview) {
     } catch (err) { alert(err.message); }
   };
 
-  // 하드웨어 타이핑 로직 (IPC 리스너)
-  const setupPasswordListeners = () => {
-    if (!window.electron?.ipcRenderer) return;
+  // 3. 타이핑 핸들러 (함수로 분리)
+  const handleTypeRequest = async () => {
+    console.log('[Logic] 타이핑 요청 수신 -> 작업 시작');
+    
+    // 주입받은 함수로 웹뷰 객체 가져오기
+    const webview = getActiveWebview ? getActiveWebview() : null;
+    
+    if (loginForm.value.password && webview) {
+      webview.focus();
+      const password = loginForm.value.password;
 
-    const handleTypeRequest = async () => {
-      console.log('[Logic] 타이핑 요청 수신 -> 작업 시작');
-      
-      // getActiveWebview가 함수 인자로 넘어왔거나, 
-      // 만약 undefined라면 외부에서 주입받아야 함.
-      // 보통 usePassword를 호출할 때 넣어주므로 사용 가능.
-      const webview = getActiveWebview ? getActiveWebview() : null;
-      
-      if (loginForm.value.password && webview) {
-        webview.focus();
-        const password = loginForm.value.password;
-
-        for (let i = 0; i < password.length; i++) {
-          webview.sendInputEvent({ type: 'char', keyCode: password.charAt(i) });
-          await new Promise(r => setTimeout(r, 50));
-        }
-        console.log('[Logic] 타이핑 완료');
-      } else {
-        console.warn('[Logic] 비밀번호 없음 or 웹뷰 없음');
+      for (let i = 0; i < password.length; i++) {
+        webview.sendInputEvent({ type: 'char', keyCode: password.charAt(i) });
+        await new Promise(r => setTimeout(r, 50));
       }
-    };
-
-    window.electron.ipcRenderer.on('req-type-password-to-vue', handleTypeRequest);
-
-    onUnmounted(() => {
-      window.electron.ipcRenderer.removeAllListeners('req-type-password-to-vue');
-    });
+      console.log('[Logic] 타이핑 완료');
+    } else {
+      console.warn('[Logic] 비밀번호 없음 or 웹뷰 없음');
+    }
   };
 
-  // 수동 실행
+  // 4. 리스너 등록 함수
+  const setupPasswordListeners = () => {
+    if (!window.electron?.ipcRenderer) return;
+    
+    // 기존 리스너 제거 후 등록 (중복 방지)
+    window.electron.ipcRenderer.removeAllListeners('req-type-password-to-vue');
+    window.electron.ipcRenderer.on('req-type-password-to-vue', handleTypeRequest);
+  };
+
+  // ★★★ [수정됨] 클린업은 함수 밖으로 꺼내서 즉시 등록해야 함 ★★★
+  // usePassword()가 setup() 안에서 호출될 때 바로 실행되므로 안전함.
+  onUnmounted(() => {
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.removeAllListeners('req-type-password-to-vue');
+    }
+  });
+
+  // 5. 수동 실행
   const executeAutoLogin = () => {
     const webview = getActiveWebview ? getActiveWebview() : null;
     if(webview) webview.send('req-type-password');

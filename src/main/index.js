@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain, safeStorage } from 'electron'
+// import { app, shell, BrowserWindow, ipcMain, safeStorage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, safeStorage, Menu, MenuItem } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -7,27 +8,19 @@ let mainWindow
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 900,
-    show: false,
-    autoHideMenuBar: true,
-    titleBarStyle: 'hidden', // 윈도우 11 스타일
-    titleBarOverlay: {
-      color: '#f3f3f3',
-      symbolColor: '#000000',
-      height: 45
-    },
+    width: 1280, height: 900, show: false, 
+    autoHideMenuBar: true, // 메뉴바 다시 숨김
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#f3f3f3', symbolColor: '#000000', height: 45 },
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webviewTag: true // 웹뷰 허용 필수
+      webviewTag: true
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+  mainWindow.on('ready-to-show', () => mainWindow.show())
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -41,42 +34,77 @@ function createWindow() {
   }
 }
 
+// ★★★ [신규] 메뉴 생성 함수 ★★★
+function setupAppMenu() {
+  const template = [
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' }
+      ]
+    },
+    {
+      label: 'Shortcuts',
+      submenu: [
+        {
+          label: 'Search',
+          accelerator: 'F3', // F3 키 등록
+          click: () => {
+            console.log('[Main] F3 눌림 -> Vue로 전송');
+            // if (mainWindow) mainWindow.webContents.send('cmd-show-alert');
+            if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
+          }
+        },
+        {
+          label: 'Find',
+          accelerator: 'CommandOrControl+F', // Ctrl+F 등록
+          click: () => {
+            console.log('[Main] Ctrl+F 눌림 -> Vue로 전송');
+            // if (mainWindow) mainWindow.webContents.send('cmd-show-alert');
+            if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
+
+  setupAppMenu();
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // 1. 암호화/복호화
-  ipcMain.handle('encrypt-password', async (event, text) => {
-    if (!safeStorage.isEncryptionAvailable()) return null;
-    return safeStorage.encryptString(text).toString('hex');
+  // 1. 기본 핸들러
+  ipcMain.handle('encrypt-password', async (e, t) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(t).toString('hex') : null);
+  ipcMain.handle('decrypt-password', async (e, h) => safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(h, 'hex')) : null);
+  ipcMain.handle('get-preload-path', () => join(__dirname, '../preload/index.js'));
+
+  // 2. 중계 핸들러
+  ipcMain.on('bridge-req-pass', () => mainWindow?.webContents.send('bridge-req-pass-to-vue'));
+  ipcMain.on('req-type-password', () => mainWindow?.webContents.send('req-type-password-to-vue'));
+  ipcMain.on('bridge-create-tab', (e, url) => mainWindow?.webContents.send('request-new-tab', url));
+
+  // 단축키 중계 (Preload -> Vue)
+  ipcMain.on('req-toggle-search', () => {
+    console.log('[Main] 내부 단축키 중계');
+    if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
   });
-  ipcMain.handle('decrypt-password', async (event, hex) => {
-    if (!safeStorage.isEncryptionAvailable()) return null;
-    return safeStorage.decryptString(Buffer.from(hex, 'hex'));
+  
+  // 메뉴 데이터 중계
+  ipcMain.on('bridge-menu-data', (e, data) => {
+    if (mainWindow) mainWindow.webContents.send('res-extract-menu-to-vue', data);
   });
 
-  // 2. Preload 경로 제공
-  ipcMain.handle('get-preload-path', () => {
-    return join(__dirname, '../preload/index.js');
-  });
-
-  // 3. [중계] 비밀번호 요청 (Preload -> Vue)
-  ipcMain.on('bridge-req-pass', () => {
-    if (mainWindow) mainWindow.webContents.send('bridge-req-pass-to-vue');
-  });
-
-  // 4. [중계] 새 탭 생성 요청 (Preload -> Vue)
-  ipcMain.on('bridge-create-tab', (event, url) => {
-    if (mainWindow) mainWindow.webContents.send('request-new-tab', url);
-  });
-
-  // ★★★ [추가] 타이핑 요청 중계 (Preload -> Main -> Vue) ★★★
-  ipcMain.on('req-type-password', () => {
-    if (mainWindow) mainWindow.webContents.send('req-type-password-to-vue');
-  });
+  // (단축키 관련 핸들러 삭제됨)
 
   createWindow()
 
@@ -86,7 +114,5 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  if (process.platform !== 'darwin') app.quit()
 })
