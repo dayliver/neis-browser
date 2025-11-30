@@ -3,133 +3,182 @@ import { useTabs } from './useTabs';
 
 const menuData = ref(null);
 const isSearchOpen = ref(false);
+let isFetching = false;
+let retryCount = 0;
+let fetchTimer = null;
+let toggleLock = false; // ★ 중복 실행 방지 락
 
 export function useMenuSearch() {
   const { getActiveWebview } = useTabs();
 
-  // 1. 초기화 및 리스너 설정
   const setupMenuListeners = () => {
     if (!window.electron?.ipcRenderer) return;
 
-    // ★★★ [핵심] Main에서 신호가 오면 Alert 띄우기 ★★★
-    window.electron.ipcRenderer.on('cmd-show-alert', () => {
-      console.log('[Vue] 단축키 신호 수신');
-      
-      // 요청하신 단순 Alert
-      alert('단축키 입력 감지');
-    });
-
+    // 단축키 수신 (Main)
     window.electron.ipcRenderer.removeAllListeners('cmd-toggle-search');
     window.electron.ipcRenderer.on('cmd-toggle-search', () => {
-      
-      console.log('[Vue] 단축키(F3) 수신 -> 검색창 토글');
-      
-      // ★★★ [수정] Alert 지우고 이 함수 실행 ★★★
-      openMenuSearch(); 
+      console.log('[Vue] 단축키 수신');
+      openMenuSearch();
     });
-
-    // 데이터 수신
-    window.electron.ipcRenderer.removeAllListeners('res-extract-menu-to-vue');
-    window.electron.ipcRenderer.on('res-extract-menu-to-vue', (rawData) => {
-      console.log('✨ [Vue] 메뉴 데이터 수신 완료');
-      
-      const searchList = processMenuData(rawData);
-      menuData.value = searchList;
-      
-      if (searchList.length > 0) {
-         isSearchOpen.value = true; // 데이터 오면 모달 열기
-      } else {
-         alert('데이터가 비어있습니다.');
-      }
-    });
+    
+    // Vue 창 내부 단축키
+    window.removeEventListener('keydown', handleKeydown);
+    window.addEventListener('keydown', handleKeydown);
   };
 
-  // 2. 돋보기 버튼 클릭 시
-  const openMenuSearch = async () => {
-    // (A) 이미 열려있으면 닫기 (토글)
+  const handleKeydown = (e) => {
+    if ((e.ctrlKey && e.key === 'f') || e.key === 'F3') {
+      e.preventDefault(); // 기본 찾기 방지
+      openMenuSearch();
+    }
+  };
+
+  // ★ [수정] 토글 안정화 (Debounce Lock)
+  const openMenuSearch = () => {
+    if (toggleLock) return; // 락 걸려있으면 무시
+    toggleLock = true;
+    setTimeout(() => { toggleLock = false; }, 300); // 0.3초 쿨타임
+
     if (isSearchOpen.value) {
       isSearchOpen.value = false;
       return;
     }
 
-    // (B) 데이터가 이미 있으면 바로 열기
     if (menuData.value && menuData.value.length > 0) {
       isSearchOpen.value = true;
       return;
     }
 
-    // (C) 데이터 없으면 추출 시도
-    const webview = getActiveWebview();
-    if (!webview) return alert('활성화된 탭이 없습니다.');
-
-    console.log('[MenuSearch] 데이터 추출 요청 전송...');
+    // 데이터 없으면 자동 수집 시작
+    console.log('[MenuSearch] 데이터 없음 -> 수집 시작');
+    autoFetchMenuData(true);
     
-    // 1차 시도: 직접 실행 (빠름)
+    setTimeout(() => {
+       if(!menuData.value) alert("데이터를 불러오는 중입니다... 잠시 후 다시 시도해주세요.");
+       else isSearchOpen.value = true;
+    }, 500);
+  };
+
+  // ★ [수정] 메뉴 실행 로직 (4단계 -> 부모 호출 + 파라미터)
+  const executeMenu = async (targetId) => {
+    const webview = getActiveWebview();
+    if (!webview || !menuData.value) return;
+
+    // ID로 아이템 찾기
+    const item = menuData.value.find(i => i.id === targetId || i.executeId === targetId);
+    if (!item) return;
+
+    console.log(`[실행] ${item.name} (Lvl: ${item.level})`);
+
+    let script = '';
+
+    // 4단계 이상 (내부 탭)
+    if (item.level >= 4 && item.upId) {
+       // 부모(3단계)를 실행 대상으로 설정
+       // 파라미터에 내 정보(4단계)를 담음
+       const params = { 
+         menuId: item.id, 
+         menuNm: item.name, 
+         pgeId: item.pgmId,
+         // 필요한 경우 원본 속성들 추가
+         ...item.raw 
+       };
+       
+       // JSON 문자열 이스케이프
+       const paramStr = JSON.stringify(params).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+       console.log(`👉 4단계 실행: 부모(${item.upId}) 호출 + 파라미터`);
+       
+       script = `
+         (function(){
+           try {
+             var main = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index").getInstances()[0];
+             // doOpenMenuToMdi(메뉴ID, 파라미터)
+             if(main) main.callAppMethod("doOpenMenuToMdi", "${item.upId}", ${paramStr});
+           } catch(e) { console.error(e); }
+         })()
+       `;
+    } 
+    // 3단계 (일반 페이지)
+    else {
+       console.log(`👉 3단계 실행: ${item.executeId} 호출`);
+       script = `
+         (function(){
+           try {
+             var main = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index").getInstances()[0];
+             if(main) main.callAppMethod("doOpenMenuToMdi", "${item.executeId}");
+           } catch(e) { console.error(e); }
+         })()
+       `;
+    }
+    
+    try {
+      await webview.executeJavaScript(script);
+      isSearchOpen.value = false;
+    } catch (err) {
+      console.error("[Vue] 실행 실패:", err);
+      alert("실행 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 데이터 자동 수집
+  const autoFetchMenuData = async (forceReset = false) => {
+    const webview = getActiveWebview();
+    if (!webview) return;
+
+    if (forceReset) {
+      retryCount = 0;
+      if (fetchTimer) clearTimeout(fetchTimer);
+      isFetching = false;
+    }
+
+    if (isFetching) return;
+    isFetching = true;
+
     try {
       const result = await webview.executeJavaScript(`
         (function() {
           try {
             if (typeof cpr === 'undefined') return null;
             var mainDef = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index");
-            var mainApp = mainDef ? mainDef.getInstances()[0] : null;
-            var ds = mainApp ? mainApp.lookup("dsAllMenu") : null;
+            if (!mainDef) return null;
+            var mainApp = mainDef.getInstances()[0];
+            if (!mainApp) return null;
+            var ds = mainApp.lookup("dsAllMenu");
             return ds ? ds.getRowDataRanged() : null;
           } catch(e) { return null; }
         })()
       `);
 
       if (result && result.length > 0) {
+        console.log(`✨ [AutoFetch] 성공! ${result.length}건 확보.`);
         menuData.value = processMenuData(result);
-        isSearchOpen.value = true;
-        console.log('✨ [Direct] 데이터 확보 성공');
+        retryCount = 0;
+        isFetching = false;
       } else {
-        // 실패 시 Preload에게 정식 요청 (Backup)
-        webview.send('req-extract-menu');
+        isFetching = false;
+        if (retryCount < 60) {
+          retryCount++;
+          fetchTimer = setTimeout(() => autoFetchMenuData(), 1000);
+        }
       }
-    } catch (e) {
-      webview.send('req-extract-menu');
-    }
-  };
-
-  // 3. 메뉴 실행 함수
-  const executeMenu = async (targetId) => {
-    const webview = getActiveWebview();
-    if (!webview || !menuData.value) return;
-
-    const item = menuData.value.find(i => i.id === targetId || i.executeId === targetId);
-    if (!item) return;
-
-    console.log(`[실행] ${item.name} (ID: ${item.executeId})`);
-
-    // ★ 성공했던 단순 ID 호출 방식
-    const script = `
-      (function(){
-        try {
-          var mainDef = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index");
-          var main = mainDef.getInstances()[0];
-          if(main) {
-             main.callAppMethod("doOpenMenuToMdi", "${item.executeId}");
-          }
-        } catch(e) { console.error(e); }
-      })()
-    `;
-
-    try {
-      await webview.executeJavaScript(script);
-      isSearchOpen.value = false; 
     } catch (err) {
-      console.error("[Vue] 실행 실패:", err);
+      isFetching = false;
+      if (retryCount < 60) {
+          retryCount++;
+          fetchTimer = setTimeout(() => autoFetchMenuData(), 1000);
+      }
     }
   };
 
-  // [헬퍼] 데이터 가공
+  // 데이터 가공 헬퍼
   function processMenuData(list) {
     const map = {};
     const result = [];
     list.forEach(item => { map[item.MENU_ID] = item; });
 
     Object.values(map).forEach(item => {
-      // 실행 가능한 메뉴만
+      // 실행 가능한 메뉴 필터링
       if ((item.level >= 3 || (item.CALL_PAGE && item.CALL_PAGE.trim() !== "")) && item.menuLvl != 1 && item.menuLvl != 2) {
         let path = '';
         let curr = map[item.UP_MENU_ID];
@@ -155,8 +204,5 @@ export function useMenuSearch() {
     return result;
   }
 
-  // 전역 노출
-  window.executeMenu = executeMenu;
-
-  return { menuData, isSearchOpen, setupMenuListeners, openMenuSearch, executeMenu };
+  return { menuData, isSearchOpen, setupMenuListeners, openMenuSearch, executeMenu, autoFetchMenuData };
 }

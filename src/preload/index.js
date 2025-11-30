@@ -22,14 +22,11 @@ if (process.contextIsolated) {
 // 3. NEIS 현장 로직
 if (!window.location.href.includes('localhost') && !window.location.href.includes('127.0.0.1')) {
 
-  // ★★★ [복구] 로드 즉시 실행 (기다리지 않음) ★★★
-  // 보안 프로그램이 로드되기 전에 우리가 먼저 이벤트를 걸어야 합니다.
-  setupBasicFeatures();
-
   window.addEventListener('DOMContentLoaded', () => {
     console.log(`Preload: 로드 완료`);
+    setupBasicFeatures();
 
-    // [수신] 스파이 데이터 받기
+    // [수신] 스파이 데이터
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'NEIS_MENU_FOUND') {
         const rawData = event.data.payload;
@@ -53,8 +50,25 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
           var dataList = ds.getRowDataRanged();
           if (dataList && dataList.length > 0) {
              window.postMessage({ type: 'NEIS_MENU_FOUND', payload: dataList }, '*');
-          } else {
-             alert("메뉴 데이터 0건 (로딩 확인 필요)");
+          }
+        } catch (e) { console.error(e); }
+      })();
+    `;
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+  });
+
+  // [명령] 메뉴 실행
+  ipcRenderer.on('req-execute-menu', (event, menuId, param) => {
+    const paramStr = param ? JSON.stringify(param) : "null";
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        try {
+          var mainDef = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index");
+          var main = mainDef.getInstances()[0];
+          if (main) {
+             main.callAppMethod("doOpenMenuToMdi", "${menuId}", ${paramStr});
           }
         } catch (e) { console.error(e); }
       })();
@@ -64,25 +78,77 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
   });
 
   // =========================================================
-  // ★ [복구] 기본 기능 (단축키 포함)
+  // 기본 기능 설정
   // =========================================================
   function setupBasicFeatures() {
     
-    // 1. ★★★ [핵심] 단축키 강제 탈취 (Capturing Mode) ★★★
-    // useCapture: true 옵션으로 보안 프로그램보다 먼저 키 입력을 가로챕니다.
+    // 1. ★★★ [수정] 붙여넣기 감지 (Textarea & Table 확인) ★★★
+    window.addEventListener('keydown', async (e) => {
+      // Ctrl+V 감지
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        
+        // (1) 타겟 확인: Textarea 인가?
+        const target = document.activeElement;
+        const isTextarea = target && (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text'));
+        
+        // Textarea가 아니면 -> 그냥 둠 (일반 붙여넣기)
+        if (!isTextarea) return;
+
+        // --------------------------------------------------
+        // Textarea라면 -> 클립보드 검사 시작
+        // --------------------------------------------------
+        
+        try {
+          const clipboardItems = await navigator.clipboard.read();
+          let isTableData = false;
+
+          for (const item of clipboardItems) {
+            if (item.types.includes('text/html')) {
+              const blob = await item.getType('text/html');
+              const htmlText = await blob.text();
+              // 테이블 태그 확인
+              if (htmlText.includes('<table') || htmlText.includes('<tr')) {
+                isTableData = true;
+                break;
+              }
+            }
+          }
+
+          // (2) 표 데이터면 -> 일괄 붙여넣기 제안
+          if (isTableData) {
+             e.preventDefault(); // 기본 붙여넣기 차단
+             e.stopImmediatePropagation();
+
+             if (confirm('표(Table) 데이터가 감지되었습니다.\n일괄 붙여넣기를 진행하시겠습니까?')) {
+                 console.log('>> 일괄 붙여넣기 시작');
+                 // TODO: Vue에게 runBatchPaste 요청 보내기
+                 // ipcRenderer.send('req-batch-paste-start');
+                 alert('일괄 붙여넣기 로직을 실행합니다.');
+             } else {
+                 // 취소하면 -> 텍스트로 변환해서 일반 붙여넣기
+                 const text = await navigator.clipboard.readText();
+                 document.execCommand('insertText', false, text);
+             }
+          }
+          // 표가 아니면 -> 아무것도 안 함 (브라우저가 알아서 붙여넣음)
+
+        } catch (err) {
+          // 클립보드 읽기 에러 시 -> 그냥 둠
+          console.error(err);
+        }
+      }
+    }, true); // Capturing
+
+
+    // 2. 단축키 (F3)
     window.addEventListener('keydown', (e) => {
       if (e.key === 'F3' || (e.ctrlKey && (e.key === 'f' || e.key === 'F'))) {
-        console.log('Preload: 내부 단축키 감지 -> Vue 토글 요청');
-        
-        // 보안 프로그램이나 브라우저가 처리하지 못하게 막습니다.
-        e.preventDefault(); 
-        e.stopPropagation();
-        
-        ipcRenderer.send('req-toggle-search'); // Main으로 신호 발사
+        e.preventDefault(); e.stopPropagation();
+        ipcRenderer.send('req-toggle-search');
       }
-    }, true); // <--- true 필수
+    }, true);
 
-    // 2. 탭 열기
+    // 3. 탭 열기
     document.addEventListener('click', (e) => {
       const menuBtn = e.target.closest('.menuBtn');
       if (menuBtn) {
@@ -94,7 +160,7 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
       }
     }, true);
 
-    // 3. 비밀번호 입력
+    // 4. 비밀번호 입력
     setInterval(() => {
       const certInput = document.querySelector('input[name="certPassword"]');
       if (certInput && !certInput.dataset.listenerAttached) {

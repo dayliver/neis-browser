@@ -6,7 +6,8 @@
         <span class="icon">🔍</span>
         <input 
           ref="inputRef"
-          v-model="query" 
+          :value="query"
+          @input="onInput"
           type="text" 
           placeholder="메뉴명 검색 (↑↓ 이동, Enter 실행)" 
           @keydown="onInputKeydown"
@@ -52,11 +53,17 @@ const listRef = ref(null);
 const itemRefs = ref([]);
 const focusIndex = ref(0);
 
-// 검색 필터링
+// ★ [추가] 한글 입력 핸들러
+const onInput = (e) => {
+  query.value = e.target.value;
+  focusIndex.value = 0; // 검색어 변경 시 포커스 초기화
+};
+
 const filteredList = computed(() => {
-  focusIndex.value = 0;
   if (!query.value) return props.menuList || [];
   const q = query.value.toLowerCase();
+  
+  // 검색 로직 (이름 또는 경로)
   return (props.menuList || []).filter(item => 
     item.name.toLowerCase().includes(q) || 
     item.path.toLowerCase().includes(q)
@@ -65,10 +72,12 @@ const filteredList = computed(() => {
 
 const highlight = (text) => {
   if (!query.value) return text;
-  return text.replace(new RegExp(`(${query.value})`, 'gi'), '<span class="highlight">$1</span>');
+  try {
+    return text.replace(new RegExp(`(${query.value})`, 'gi'), '<span class="highlight">$1</span>');
+  } catch (e) { return text; }
 };
 
-// [UX] 스크롤 자동 이동
+// 스크롤 자동 이동
 watch(focusIndex, (idx) => {
   nextTick(() => {
     const el = itemRefs.value[idx];
@@ -78,7 +87,7 @@ watch(focusIndex, (idx) => {
   });
 });
 
-// [Event] 입력창 키보드 핸들러
+// 키보드 핸들러
 const onInputKeydown = (e) => {
   const len = Math.min(filteredList.value.length, 100);
   if (e.key === 'ArrowDown') {
@@ -88,44 +97,39 @@ const onInputKeydown = (e) => {
     e.preventDefault();
     if (len > 0) focusIndex.value = (focusIndex.value - 1 + len) % len;
   } else if (e.key === 'Enter') {
+    // 한글 조합 중 엔터 입력 방지 (isComposing 체크)
+    if (e.isComposing) return;
     e.preventDefault();
     if (len > 0) execute(filteredList.value[focusIndex.value]);
   } else if (e.key === 'Escape') {
     closeModal();
-  } else if (e.key === 'Tab') { // [UX] 탭 키로 리스트 이동
+  } else if (e.key === 'Tab') {
     e.preventDefault();
     if (len > 0) itemRefs.value[focusIndex.value]?.focus();
   }
 };
 
-// [Event] 리스트 키보드 핸들러
 const onListKeydown = (e, item) => {
   if (e.key === 'Enter') {
     e.preventDefault();
     execute(item);
-  } else if (e.key === 'Tab') { // [UX] 탭 키로 입력창 복귀
+  } else if (e.key === 'Tab') {
     e.preventDefault();
     inputRef.value?.focus();
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    // 화살표는 입력창 핸들러와 동일하게 동작 (포커스만 유지)
     onInputKeydown(e);
     nextTick(() => itemRefs.value[focusIndex.value]?.focus());
   } else if (e.key.length === 1) {
-     inputRef.value?.focus(); // 글자 치면 입력창으로
+     inputRef.value?.focus();
   }
 };
 
-// [Event] 마우스 클릭
 const onClickItem = (item) => {
-  console.log('[Modal] 마우스 클릭됨:', item.name);
   execute(item);
 };
 
-// 실행 요청 (부모에게 전달)
 const execute = (item) => {
-  const targetId = item.executeId || item.id;
-  console.log('[Modal] 실행 이벤트 발신(emit):', targetId);
-  emit('execute', targetId);
+  emit('execute', item.id); // ID로 실행
   closeModal();
 };
 
@@ -139,9 +143,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 기존 스타일 유지 */
 .search-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.5); display: flex; justify-content: center; padding-top: 80px; z-index: 9999;
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(3px);
+  display: flex; justify-content: center; padding-top: 80px; z-index: 99999;
 }
 .search-container {
   width: 650px; max-width: 90%; background: white; border-radius: 10px;
@@ -154,6 +160,9 @@ onMounted(() => {
 .search-header input {
   flex: 1; border: none; font-size: 16px; outline: none; background: transparent;
 }
+.search-header .count {
+  font-size: 12px; color: #666; background: #f1f3f5; padding: 4px 8px; border-radius: 12px; font-weight: 600;
+}
 .result-list {
   list-style: none; padding: 0; margin: 0; overflow-y: auto;
 }
@@ -165,5 +174,6 @@ onMounted(() => {
 .item-path { font-size: 11px; color: #888; margin-bottom: 2px; display: block; }
 .item-name { font-size: 14px; font-weight: bold; color: #333; }
 :deep(.highlight) { color: #1a73e8; text-decoration: underline; }
+.enter-hint { font-size: 12px; opacity: 0.7; }
 .no-result { padding: 30px; text-align: center; color: #999; }
 </style>
