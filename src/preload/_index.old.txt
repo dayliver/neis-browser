@@ -74,7 +74,6 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
   // ★★★ [신규] 마우스 이벤트 시뮬레이션 함수 ★★★
   // =========================================================
   const simulateClick = (element, ms = 300) => new Promise(resolve => {
-    console.log({ element })
     const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window });
     const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
     const mouseUpEvent = new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window });
@@ -89,136 +88,61 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
   });
 
 
-  function normalizeToKeyboardChars(text) {
-    if (!text) return '';
-    return text
-      // ‘ ’ ‚ ‛ ′ ‵ → '
-      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
-      // “ ” „ ‟ ″ ‶ → "
-      .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
-      // 하이픈/대시류(- ‒ – — ―) → -
-      .replace(/[\u2010-\u2015]/g, '-')
-      // … → ...
-      .replace(/\u2026/g, '...')
-      // NBSP, 전각 공백 → 보통 공백
-      .replace(/\u00A0/g, ' ')
-      .replace(/\u3000/g, ' ')
-      // 전각/호환 문자들을 가능한 한 키보드 문자로
-      .normalize('NFKC');
-  }
+  // =========================================================
+  // 일괄 붙여넣기 실행 함수
+  // =========================================================
+  async function runBatchPaste(startRowIndex, startColIndex, dataList) {
+    console.log(`[Batch] 시작: ${startRowIndex}행, ${startColIndex}열 / 데이터: ${dataList.length}건`);
+    
+    webFrame.setZoomFactor(0.3);
+    await new Promise(r => setTimeout(r, 1000)); 
 
-  // "2행 특기사항 ..." → 2
-  function getRowNumber(el) {
-    if (!el) return null;
-    const aria = el.getAttribute('aria-label') ?? '';
-    const m = aria.match(/^(\d+)행/);
-    return m ? Number(m[1]) : null;
-  }
-
-  // ClipboardEvent → 항상 "정규화된 문자열 배열"로 반환
-  // - HTML 테이블이면: 각 tr의 textContent를 정규화해서 배열로
-  // - 아니면: text/plain을 정규화해서 [ string ] 으로
-  function getArrayFromEvent(e) {
-    const clipboard = e.clipboardData || window.clipboardData;
-    if (!clipboard) return [];
-
-    // 1) HTML 테이블 시도
-    const html = clipboard.getData('text/html') || '';
-    if (html) {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const table = doc.querySelector('table');
-
-      if (table) {
-        const rows = Array.from(table.querySelectorAll('tr'));
-        const arr = rows
-          .map(row => normalizeToKeyboardChars(row.textContent.trim()))
-          .filter(text => text.length > 0);
-
-        if (arr.length > 0) {
-          return arr;
-        }
-      }
-    }
-
-    // 2) HTML 테이블이 아니면 text/plain → [ normalizedString ]
-    const plain = clipboard.getData('text/plain') || '';
-    if (!plain) return [];
-
-    return [normalizeToKeyboardChars(plain)];
-  }
-
-  // paste: array와 element(=textarea)에 따라
-  // - 기본 붙여넣기 대체 (첫 줄만)
-  // - 일괄 붙여넣기(confirm 후 pasteArray 호출)
-  // 을 모두 처리하고, 이벤트를 막을지 여부도 여기서 결정
-  function paste(array, element, e) {
-    if (!Array.isArray(array) || array.length === 0) return;
-
-    // 방어: textarea 아닌 경우는 건드리지 않음 (normalize는 textarea에만 적용)
-    if (!(element instanceof HTMLTextAreaElement)) {
-      return;
-    }
-
-    // "일반적인 붙여넣기" = 정규화된 첫 줄만 삽입
-    const doSinglePaste = () => {
-      const first = String(array[0] ?? '');
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      element.focus();
-      document.execCommand('insertText', false, first);
-    };
-
-    // 1) array 길이가 2 미만이면 → 그냥 첫 줄만 붙여넣기
-    if (array.length < 2) {
-      doSinglePaste();
-      return;
-    }
-
-    // 2) 행 번호 추출 실패 → 오류 알리고 첫 줄만 붙여넣기
-    const rowNumber = getRowNumber(element);
-    if (!rowNumber) {
-      alert('일괄 붙여넣기 오류: 현재 위치한 행 번호를 확인할 수 없습니다.');
-      doSinglePaste();
-      return;
-    }
-
-    // 3) 일괄 붙여넣기 여부 확인
-    const ok = confirm(
-      `[일괄 붙여넣기]\n\n${rowNumber}행부터 ${array.length}건을 입력하시겠습니까?`
-    );
-
-    if (!ok) {
-      // 5) 아니면 첫 데이터(array[0])만 일반적인(=정규화된) 붙여넣기
-      doSinglePaste();
-      return;
-    }
-
-    // 6) 맞다면 array 전체를 rowNumber 행부터 붙여넣기
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const selectorSuffix = getSelectorSuffix(element);
-    pasteArray(array, rowNumber, selectorSuffix); // 이 함수는 나중에 구현
-  }
-
-  async function pasteArray(array, startRow, selectorSuffix) {
     let successCount = 0;
-    for (let i = 0; i < array.length; i++) {
-      const row = startRow + i;
-      const text = array[i];
-      console.log({ row, text });
-      const selector = `div[aria-label^="${row}행"][aria-label*="${selectorSuffix}"]`;
-      const element = document.querySelector(selector);
-      console.log({ element });
-      await simulateClick(element);
 
+    for (let i = 0; i < dataList.length; i++) {
+      const targetRowIdx = startRowIndex + i;
+      const text = dataList[i];
+
+      // 1. 행 찾기
+      const rowEl = document.querySelector(`.cl-grid-row[aria-rowindex="${targetRowIdx}"]`);
+      if (!rowEl) {
+        console.warn(`행 미발견: ${targetRowIdx}`);
+        break;
+      }
+
+      // 2. 열 찾기
+      const cellEl = rowEl.querySelector(`.cl-grid-cell[data-cellindex="${startColIndex}"]`);
+      if (!cellEl) {
+        console.warn(`열 미발견: ${startColIndex}`);
+        continue;
+      }
+
+      // 3. 시각적 표시
+      cellEl.style.outline = "5px solid red"; 
+      cellEl.scrollIntoView({block: "center", inline: "nearest"});
+
+      // 4. ★★★ [수정] 정밀 타격 (simulateClick 사용) ★★★
+      const clickTarget = cellEl.querySelector('.cl-text') || cellEl;
+      
+      console.log(`[${i}] 클릭 시뮬레이션 시도...`);
+      await simulateClick(clickTarget, 300); // 300ms 대기
+
+      // 5. 에디터(Textarea) 찾기
+      // (전역 activeElement 확인)
       let activeInput = document.activeElement;
+      while (activeInput && activeInput.shadowRoot && activeInput.shadowRoot.activeElement) {
+        activeInput = activeInput.shadowRoot.activeElement;
+      }
+
+      // (혹시 activeElement가 안 잡히면 셀 내부 재검색)
+      if (!activeInput || (activeInput.tagName !== 'TEXTAREA' && activeInput.tagName !== 'INPUT')) {
+          activeInput = cellEl.querySelector('textarea');
+      }
 
       if (activeInput && (activeInput.tagName === 'TEXTAREA' || activeInput.tagName === 'INPUT')) {
-          console.log(`[성공] 에디터 활성화됨`, activeInput);
+          console.log(`[성공] 에디터 활성화됨`);
           
           activeInput.focus();
-          activeInput.setSelectionRange(0, activeInput.value.length);
           
           // 값 주입 (execCommand 우선 시도)
           const success = document.execCommand('insertText', false, text);
@@ -232,34 +156,83 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
           
           successCount++;
       } else {
-          console.error(`[실패] ${row}행 - 에디터 활성화 실패`);
+          console.error(`[실패] ${targetRowIdx}행 - 에디터 활성화 실패`);
       }
+      
+      await new Promise(r => setTimeout(r, 100));
     }
-    await new Promise(r => setTimeout(r, 100));
+
+    // 복구
+    setTimeout(() => {
+        webFrame.setZoomFactor(1.0);
+        alert(`작업 완료!\n\n- 총 데이터: ${dataList.length}건\n- 성공(입력됨): ${successCount}건\n\n저장 버튼을 눌러 반영 여부를 꼭 확인하세요.`);
+    }, 500);
   }
 
-  function getSelectorSuffix(el) {
-    if (!el) return null;
-
-    const aria = el.getAttribute('aria-label') ?? '';
-
-    // 예:
-    // "3행 특기사항 적극적으로..."            → "특기사항"
-    // "5행 행동특성 및 종합의견 또래와..."    → "행동특성 및 종합의견"
-    // "2행 희망분야 간호 관련..."             → "희망분야"
-    const m = aria.match(
-      /^\d+행\s*(특기사항|행동특성 및 종합의견|희망분야)/
-    );
-
-    return m ? m[1] : null;
-  }
 
   function setupBasicFeatures() {
     // 1. 붙여넣기 감지
-    window.addEventListener('paste', (e) => {
-      const array = getArrayFromEvent(e);         // 1) 붙여넣을 데이터 배열로 만들기 (이미 normalize 적용됨)
-      const activeElement = document.activeElement; // 2) activeElement 구하기
-      paste(array, activeElement, e);           // 3) 붙여넣기 로직 위임
+    window.addEventListener('keydown', async (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        
+        // 1) 탭 이름 확인
+        const activeTabEl = document.querySelector('.cl-tabfolder-item.cl-selected .cl-text');
+        let isTargetTab = false;
+        if (activeTabEl) {
+          const currentTabName = activeTabEl.innerText.trim();
+          const ALLOWED_TABS = ['과목별세부능력', '개인별세부능력', '동아리활동']; 
+          isTargetTab = ALLOWED_TABS.some(tab => currentTabName.includes(tab));
+        }
+        if (!isTargetTab) return;
+
+        // 2) 타겟 셀 확인
+        const target = document.activeElement;
+        const cell = target.closest('.cl-grid-cell');
+        const row = target.closest('.cl-grid-row');
+
+        if (cell && row) {
+           e.preventDefault();
+           e.stopImmediatePropagation();
+
+           try {
+             const clipboardItems = await navigator.clipboard.read();
+             let isTable = false;
+             let dataList = [];
+
+             for (const item of clipboardItems) {
+               if (item.types.includes('text/html')) {
+                 const blob = await item.getType('text/html');
+                 const html = await blob.text();
+                 if (html.includes('<table') || html.includes('<tr')) {
+                   isTable = true;
+                   const parser = new DOMParser();
+                   const doc = parser.parseFromString(html, 'text/html');
+                   const rows = doc.querySelectorAll('tr');
+                   rows.forEach(r => {
+                      const col = r.querySelector('td'); 
+                      if(col) dataList.push(col.innerText.trim()); 
+                   });
+                 }
+               }
+             }
+
+             const colIdx = parseInt(cell.getAttribute('data-cellindex'), 10);
+             const rowIdx = parseInt(row.getAttribute('aria-rowindex'), 10);
+
+             if (isTable && dataList.length > 1) {
+                if (confirm(`[일괄 붙여넣기]\n\n${rowIdx}행부터 ${dataList.length}건을 입력하시겠습니까?`)) {
+                   runBatchPaste(rowIdx, colIdx, dataList);
+                } else {
+                   const text = await navigator.clipboard.readText();
+                   document.execCommand('insertText', false, text);
+                }
+             } else {
+                const text = await navigator.clipboard.readText();
+                document.execCommand('insertText', false, text);
+             }
+           } catch (err) { console.error(err); }
+        }
+      }
     }, true);
 
     // 2. 단축키
