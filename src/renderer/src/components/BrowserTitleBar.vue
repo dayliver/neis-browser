@@ -2,7 +2,7 @@
   <div class="titlebar">
     <div class="tabs-container">
       <div 
-        v-for="tab in tabs" 
+        v-for="tab in tabs"
         :key="tab.id"
         class="tab-item"
         :class="{ active: currentTabId === tab.id }"
@@ -15,15 +15,11 @@
     </div>
 
     <div class="action-buttons">
-      <ActionButton emoji="📋" label="일괄 붙여넣기" @click="runBatchPaste" />
-      <ActionButton emoji="🔄" label="새로고침" @click="refreshTab" />
-      
-      <ActionButton emoji="🔍" label="메뉴 검색" @click="openMenuSearch" />
-      
+      <!-- <ActionButton icon="rotate" emoji="🔄" label="새로고침" @click="refreshTab" /> -->
+      <ActionButton icon="search" emoji="🔍" label="메뉴 검색" @click="openMenuSearch" />
+      <ActionButton icon="lock" emoji="🔑" label="비밀번호 설정" @click="showLoginModal = true" />
+      <ActionButton icon="location" emoji="🚪" label="지역변경" variant="danger" @click="goRegionSelect" />
       <ActionButton emoji="🐞" label="디버그" @click="openDevTools" />
-      <ActionButton emoji="🔑" label="비밀번호 설정" @click="showLoginModal = true" />
-      <ActionButton emoji="⚡" label="수동 입력" variant="primary" @click="executeAutoLogin" />
-      <ActionButton emoji="🚪" label="지역변경" variant="danger" @click="goRegionSelect" />
     </div>
 
     <div class="window-controls-spacer"></div>
@@ -37,16 +33,14 @@ import ActionButton from './ActionButton.vue';
 // Composables
 import { useTabs } from '../composables/useTabs';
 import { usePassword } from '../composables/usePassword';
-import { useBatchPaste } from '../composables/useBatchPaste';
 import { useMenuSearch } from '../composables/useMenuSearch'; 
 
 const router = useRouter();
 
 // 로직 연결
 const { tabs, currentTabId, switchTab, closeTab, getActiveWebview } = useTabs();
-const { showLoginModal, executeAutoLogin } = usePassword(getActiveWebview);
-const { runBatchPaste } = useBatchPaste();
-const { openMenuSearch, executeMenu } = useMenuSearch();
+const { showLoginModal } = usePassword(getActiveWebview);
+const { openMenuSearch } = useMenuSearch();
 
 // 단순 UI 액션
 const refreshTab = () => getActiveWebview()?.reload();

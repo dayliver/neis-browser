@@ -16,7 +16,8 @@ function createWindow() {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webviewTag: true
+      webviewTag: true,
+      devTools: true
     }
   })
 
@@ -53,7 +54,6 @@ function setupAppMenu() {
           accelerator: 'F3', // F3 키 등록
           click: () => {
             console.log('[Main] F3 눌림 -> Vue로 전송');
-            // if (mainWindow) mainWindow.webContents.send('cmd-show-alert');
             if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
           }
         },

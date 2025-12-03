@@ -1,17 +1,28 @@
 <template>
-  <button 
+  <!-- <button 
     class="action-button" 
     :class="variant" 
     :title="label"
     @click="handleClick"
   >
     <span class="emoji">{{ emoji }}</span>
-    </button>
+  </button> -->
+  <div
+    class="icon-wrapper"
+    :class="variant" 
+    :title="label"
+    @click="handleClick"
+  >
+    <img :src="`/icons/${icon}.svg`" alt="" />
+  </div>
+  
+  <!-- <span>{{ icon }}</span> -->
 </template>
 
 <script setup>
 // Props 정의 (부모에게 받을 데이터)
 const props = defineProps({
+  icon: { type: String, default: '' },
   emoji: { type: String, required: true },
   label: { type: String, default: '' }, // 툴팁 역할
   variant: { type: String, default: 'default' } // 'default', 'primary', 'danger'
@@ -26,6 +37,20 @@ const handleClick = (e) => {
 </script>
 
 <style scoped>
+.icon-wrapper {
+  opacity: 0.5;
+  margin: 4px 8px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.icon-wrapper:hover {
+  opacity: 1;
+}
 .action-button {
   background: transparent;
   border: none;
