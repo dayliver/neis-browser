@@ -1,6 +1,6 @@
 <template>
   <div class="region-select-container">
-    <h1>소속 교육청을 선택해주세요</h1>
+    <h1>소속 시도교육청을 선택해주세요</h1>
     <p>선택하신 정보는 브라우저 설정에 저장됩니다.</p>
     
     <div class="region-grid">
@@ -40,7 +40,7 @@ const selectRegion = (regionData) => {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background-color: #f5f7fa;
+  background-color: #dadada;
 }
 
 h1 { margin-bottom: 10px; color: #333; }
@@ -48,7 +48,7 @@ p { margin-bottom: 30px; color: #666; }
 
 .region-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 15px;
   max-width: 800px;
   width: 100%;
@@ -56,6 +56,7 @@ p { margin-bottom: 30px; color: #666; }
 }
 
 .region-card {
+  opacity: 0.75;
   background: white;
   border: 1px solid #e1e4e8;
   border-radius: 12px;
@@ -69,6 +70,7 @@ p { margin-bottom: 30px; color: #666; }
 }
 
 .region-card:hover {
+  opacity: 1;
   transform: translateY(-3px);
   box-shadow: 0 5px 15px rgba(0,0,0,0.1);
   border-color: #42b983; /* Vue Green */

@@ -8,23 +8,49 @@ let retryCount = 0;
 let fetchTimer = null;
 let toggleLock = false;
 
+const STORAGE_KEY = 'menu_usage_history';
+
+// ★ [추가] 메뉴명 기반 검색 키워드 매핑
+// 사용자가 자주 찾는 별칭을 여기에 등록합니다.
+const MENU_NAME_KEYWORDS = {
+  '개인근무상황관리': '조퇴 외출 지각 병가 연가 공가 특별휴가'
+};
+
+const loadUsageHistory = () => {
+  try {
+    const json = localStorage.getItem(STORAGE_KEY);
+    return json ? JSON.parse(json) : {};
+  } catch (e) {
+    console.error('기록 로드 실패', e);
+    return {};
+  }
+};
+
 // ... (processMenuData 함수는 그대로 유지) ...
 function processMenuData(menuData) {
   if (!menuData) return [];
   
   const { workMenu = [], approvalMenu = [], baseMenu = [] } = menuData;
+  const usageHistory = loadUsageHistory();
 
-  // 공통 경로 생성 헬퍼 함수
-  const buildPath = (item, map, prefix) => {
+  // ★ [수정] 경로 생성 헬퍼 함수 (Fallback 맵 지원)
+  // map: 주로 찾는 데이터셋 (예: baseMap)
+  // fallbackMap: map에 없을 경우 찾아볼 데이터셋 (예: workMap - 전체 트리 구조 보유)
+  const buildPath = (item, map, prefix, fallbackMap = {}) => {
     let path = '';
-    let curr = map[item.UP_MENU_ID]; // 상위 메뉴 찾기
+    // 부모 찾기: 1순위 map, 2순위 fallbackMap
+    let currId = item.UP_MENU_ID;
+    let curr = map[currId] || fallbackMap[currId]; 
     let depth = 0;
     
     // 최대 5단계까지 상위 메뉴 추적
     while(curr && depth < 5) {
       const currName = curr.MENU_NM || '';
       path = path ? `${currName} > ${path}` : currName;
-      curr = map[curr.UP_MENU_ID];
+      
+      currId = curr.UP_MENU_ID;
+      // 다음 부모 찾기
+      curr = map[currId] || fallbackMap[currId];
       depth++;
     }
     
@@ -33,17 +59,41 @@ function processMenuData(menuData) {
   };
 
   // [1] 업무 메뉴 가공 (WORK)
+  // workMap은 전체 메뉴 트리를 가지고 있으므로 다른 메뉴들의 부모 찾기 참조용으로도 쓰임
   const workMap = {};
   workMenu.forEach(item => { workMap[item.MENU_ID] = item; });
   const processedWorkMenu = [];
 
   Object.values(workMap).forEach(item => {
+    // 레벨 데이터는 참고용으로 변환 (실제 필터링에서는 제외)
     const level = item.menuLvl ? Number(item.menuLvl) : (item.level || 0);
-    // 업무 메뉴 필터링 (레벨 3 이상 혹은 호출 페이지 존재)
-    if ((level >= 3 || (item.CALL_PAGE && item.CALL_PAGE.trim() !== "")) && level !== 1 && level !== 2) {
+    
+    // 실행 가능 여부 판단
+    const callPage = item.CALL_PAGE ? item.CALL_PAGE.trim() : '';
+    const pgmId = item.PGM_ID ? item.PGM_ID.trim() : '';
+    
+    const isExecutable = 
+        callPage.length > 0 && 
+        callPage !== 'edu//' && 
+        pgmId.length > 0;
+
+    // 레벨 조건(level >= 3 등)을 완전히 제거하고, 오직 '실행 가능성'으로만 판단
+    if (isExecutable) {
+      let name = item.MENU_NM || '';
+      
+      // 상위 메뉴와 이름이 같은 경우 '(바로가기)' 접미사 추가
+      const parent = workMap[item.UP_MENU_ID];
+      if (parent && (parent.MENU_NM || '') === name) {
+        name += ' (바로가기)';
+      }
+
+      // ★ [추가] 키워드 찾기 (메뉴명 기준)
+      const rawName = item.MENU_NM || '';
+      const keywordByName = MENU_NAME_KEYWORDS[rawName] || '';
+      
       processedWorkMenu.push({
         type: 'WORK', // ★ 타입 구분
-        name: item.MENU_NM || '', 
+        name: name, 
         path: buildPath(item, workMap, '[업무]'), // ★ 공통 경로 로직 사용
         id: item.MENU_ID,
         executeId: item.V_MENU_ID || item.MENU_ID,
@@ -51,47 +101,73 @@ function processMenuData(menuData) {
         upId: item.UP_MENU_ID,
         pgmId: item.PGM_ID,
         raw: item,
-        callPage: item.CALL_PAGE
+        callPage: item.CALL_PAGE,
+        count: usageHistory[item.MENU_ID] || 0, // ★ 실행 횟수 주입
+        keywords: keywordByName // ★ 키워드 필드 추가
       });
     }
   });
 
-  // [2] 기본 메뉴 가공 (BASE) - ★ 여기도 계층 구조가 있으므로 Map핑 필요
+  // [2] 기본 메뉴 가공 (BASE)
   const baseMap = {};
   baseMenu.forEach(item => { baseMap[item.MENU_ID] = item; });
   const processedBaseMenu = [];
 
   Object.values(baseMap).forEach(item => {
-      // 기본 메뉴는 모든 리프 노드(페이지 호출 가능)를 대상으로 함
-      if (item.CALL_PAGE && item.CALL_PAGE.trim() !== "") {
+      // 기본 메뉴도 CALL_PAGE 유효성 검사 강화
+      const callPage = item.CALL_PAGE ? item.CALL_PAGE.trim() : '';
+      if (callPage.length > 0 && callPage !== 'edu//') {
+          let name = item.MENU_NM || '';
+          
+          // 부모 찾기도 fallback 적용
+          const parent = baseMap[item.UP_MENU_ID] || workMap[item.UP_MENU_ID];
+          if (parent && (parent.MENU_NM || '') === name) {
+            name += ' (바로가기)';
+          }
+
+          // ★ [추가] 키워드 찾기
+          const rawName = item.MENU_NM || '';
+          const keywordByName = MENU_NAME_KEYWORDS[rawName] || '';
+
           processedBaseMenu.push({
             type: 'BASE', // ★ 타입 구분
-            name: item.MENU_NM || '',
-            path: buildPath(item, baseMap, '[기본]'), // ★ 기본 메뉴도 경로 추적 적용
+            name: name,
+            // ★ [수정] workMap을 fallbackMap으로 전달하여 끊긴 경로(복무 등)를 찾음
+            path: buildPath(item, baseMap, '[기본]', workMap),
             id: item.MENU_ID,
             executeId: item.MENU_ID,
             level: Number(item.menuLvl),
             upId: item.UP_MENU_ID,
             pgmId: item.PGM_ID,
             raw: item,
-            callPage: item.CALL_PAGE
+            callPage: item.CALL_PAGE,
+            count: usageHistory[item.MENU_ID] || 0,
+            keywords: keywordByName
           });
       }
   });
 
-  // [3] 승인 메뉴 가공 (APPROVAL) - 보통 1단계지만 포맷 통일
-  const processedApprovalMenu = approvalMenu.map(item => ({
-    type: 'APPROVAL', // ★ 타입 구분
-    name: item.MENU_NM || '',
-    path: `[승인] > ${item.MENU_NM || ''}`,
-    id: item.MENU_ID,
-    executeId: item.MENU_ID,
-    level: Number(item.menuLvl),
-    upId: item.UP_MENU_ID,
-    pgmId: item.PGM_ID,
-    raw: item,
-    callPage: item.CALL_PAGE // 승인 메뉴는 callPage가 소문자일 수 있음 (주의)
-  }));
+  // [3] 승인 메뉴 가공 (APPROVAL)
+  const processedApprovalMenu = approvalMenu.map(item => {
+    // ★ [추가] 키워드 찾기
+    const rawName = item.MENU_NM || '';
+    const keywordByName = MENU_NAME_KEYWORDS[rawName] || '';
+
+    return {
+      type: 'APPROVAL', // ★ 타입 구분
+      name: item.MENU_NM || '',
+      path: `[승인] > ${item.MENU_NM || ''}`,
+      id: item.MENU_ID,
+      executeId: item.MENU_ID,
+      level: Number(item.menuLvl),
+      upId: item.UP_MENU_ID,
+      pgmId: item.PGM_ID,
+      raw: item,
+      callPage: item.CALL_PAGE,
+      count: usageHistory[item.MENU_ID] || 0,
+      keywords: keywordByName
+    };
+  });
 
   // 배열 합치기
   return [...processedWorkMenu, ...processedBaseMenu, ...processedApprovalMenu];
@@ -100,7 +176,6 @@ function processMenuData(menuData) {
 export function useMenuSearch() {
   const { getActiveWebview } = useTabs();
 
-  // ... (setupMenuListeners, handleKeydown, openMenuSearch, executeMenu 동일) ...
   const setupMenuListeners = () => {
     if (!window.electron?.ipcRenderer) return;
 
@@ -116,7 +191,7 @@ export function useMenuSearch() {
 
   const handleKeydown = (e) => {
     if ((e.ctrlKey && e.key === 'f') || e.key === 'F3') {
-      e.preventDefault();
+      e.preventDefault(); // 기본 찾기 방지
       openMenuSearch();
     }
   };
@@ -131,7 +206,6 @@ export function useMenuSearch() {
       return;
     }
 
-    // menuData.value가 배열이고 길이가 있는지 확인
     if (Array.isArray(menuData.value) && menuData.value.length > 0) {
       isSearchOpen.value = true;
       return;
@@ -141,7 +215,6 @@ export function useMenuSearch() {
     autoFetchMenuData(true);
     
     setTimeout(() => {
-       // 여기도 배열 체크 추가
        if(!Array.isArray(menuData.value) || menuData.value.length === 0) alert("데이터를 불러오는 중입니다... 잠시 후 다시 시도해주세요.");
        else isSearchOpen.value = true;
     }, 500);
@@ -149,21 +222,23 @@ export function useMenuSearch() {
 
   const executeMenu = async (targetId) => {
     const webview = getActiveWebview();
-    // 배열인지 확인
     if (!webview || !Array.isArray(menuData.value)) return;
 
     const item = menuData.value.find(i => i.id === targetId || i.executeId === targetId);
     if (!item) return;
 
-    console.log(`[실행] ${item.name} (${item.type})`);
+    // ★ [추가] 실행 횟수 업데이트 및 저장
+    item.count = (item.count || 0) + 1;
+    const history = loadUsageHistory();
+    history[item.id] = item.count; 
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+
+    console.log(`[실행] ${item.name} (${item.type}) - 누적 ${item.count}회`);
     
     let script = '';
 
-    // ★ [수정] 메뉴 타입에 따라 실행 함수 분기 처리
     if (item.type === 'BASE' || item.type === 'APPROVAL') {
-        // 기본 메뉴 및 승인 메뉴는 doOpenNoMenu 사용
-        // doOpenNoMenu(psAppId, psAppTitle, poParam, opCurMnuId, opCurMngAuth)
-        const callPage = item.callPage || item.raw.callPage; // 승인메뉴는 camelCase 주의
+        const callPage = item.callPage || item.raw.callPage; 
         console.log(`👉 ${item.type} 실행: doOpenNoMenu 호출 (${callPage})`);
         
         script = `
@@ -175,8 +250,6 @@ export function useMenuSearch() {
           })()
         `;
     } else {
-        // 업무 메뉴 (WORK) - 기존 로직 유지
-        // 4단계 이상 (내부 탭)
         if (item.level > 4 && item.upId) {
             const params = { 
               menuId: item.id, 
@@ -188,8 +261,7 @@ export function useMenuSearch() {
             console.log(`👉 WORK 4단계 실행: 부모(${item.upId}) 호출 + 파라미터`);
             script = `(function(){ try { var main = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index").getInstances()[0]; if(main) main.callAppMethod("doOpenMenuToMdi", "${item.upId}", ${paramStr}); } catch(e) { console.error(e); } })()`;
         } else {
-            // 3단계 (일반 페이지)
-            console.log(`👉 WORK 3단계 실행: ${item.executeId} 호출`);
+            console.log(`👉 WORK 일반 실행: ${item.executeId} 호출`);
             script = `(function(){ try { var main = cpr.core.Platform.INSTANCE.lookup("app/com/main/Index").getInstances()[0]; if(main) main.callAppMethod("doOpenMenuToMdi", "${item.executeId}"); } catch(e) { console.error(e); } })()`;
         }
     }
@@ -239,16 +311,23 @@ export function useMenuSearch() {
         })()
       `);
 
-      if (result && (result.workMenu.length > 0 || result.approvalMenu.length > 0 || result.baseMenu.length > 0)) {
-        console.log(`✨ [AutoFetch] 성공!`);
+      // ★ [안정화 로직 추가]
+      const hasWork = result && result.workMenu.length > 0;
+      const hasOther = result && (result.approvalMenu.length > 0 || result.baseMenu.length > 0);
+      
+      // 성공 조건 강화:
+      // 1. 업무 메뉴가 로드되면 즉시 성공
+      // 2. 업무 메뉴가 없더라도 다른 메뉴가 있고, 10초(retryCount > 10) 이상 기다렸다면 성공으로 인정
+      const isSuccess = hasWork || (hasOther && retryCount > 10);
+
+      if (isSuccess) {
+        console.log(`✨ [AutoFetch] 성공! (시도: ${retryCount})`);
         console.log(`- 업무메뉴: ${result.workMenu.length}건`);
         console.log(`- 승인메뉴: ${result.approvalMenu.length}건`);
         console.log(`- 기본메뉴: ${result.baseMenu.length}건`);
         
-        // ★ 중요: 배열로 확실하게 변환하여 저장
         const processed = processMenuData(result);
         
-        // Vue 3의 반응성 시스템이 배열을 감지할 수 있도록 값 할당
         if (Array.isArray(processed)) {
             menuData.value = processed;
         } else {
@@ -262,6 +341,9 @@ export function useMenuSearch() {
         isFetching = false;
         if (retryCount < 60) {
           retryCount++;
+          if (hasOther && !hasWork) {
+             console.log(`⌛ [AutoFetch] 업무 메뉴 로딩 대기 중... (${retryCount}/60)`);
+          }
           fetchTimer = setTimeout(() => autoFetchMenuData(), 1000);
         }
       }

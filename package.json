@@ -1,6 +1,6 @@
 {
   "name": "neis-browser",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Web Browser only for NEIS",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -16,6 +16,40 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.neisbrowser.app",
+    "productName": "나이스브라우저",
+    "executableName": "neisbrowser",
+    "artifactName": "neisbrowser-${version}-setup.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "build/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "나이스브라우저"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.education"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png",
+      "category": "Education"
+    }
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

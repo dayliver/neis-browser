@@ -71,10 +71,76 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
 
 
   // =========================================================
-  // ★★★ [신규] 마우스 이벤트 시뮬레이션 함수 ★★★
+  // ★★★ [신규] 스마트 입력 차단 (Trusted Event Filtering) ★★★
   // =========================================================
-  const simulateClick = (element, ms = 300) => new Promise(resolve => {
-    console.log({ element })
+  
+  const InputGuard = {
+    overlay: null,
+    
+    // 핵심 로직: 사용자가 발생시킨 이벤트(isTrusted: true)만 차단
+    // 스크립트가 발생시킨 이벤트(isTrusted: false)는 통과
+    handler: (e) => {
+      if (e.isTrusted) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return false;
+      }
+    },
+
+    lock: () => {
+      // 1. 시각적 알림 (클릭을 막지는 않음, pointer-events: none)
+      if (!document.getElementById('neis-guard-overlay')) {
+        const div = document.createElement('div');
+        div.id = 'neis-guard-overlay';
+        div.style.cssText = `
+          position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+          z-index: 999999; 
+          background: rgba(0, 0, 0, 0.05); 
+          display: flex; align-items: flex-end; justify-content: center;
+          padding-bottom: 50px;
+          pointer-events: none; /* 중요: 스크립트 클릭이 통과되도록 함 */
+        `;
+        
+        const msg = document.createElement('div');
+        msg.style.cssText = `
+          background: rgba(0,0,0,0.8); color: white; padding: 10px 20px;
+          border-radius: 30px; font-weight: bold; font-size: 14px;
+          box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        `;
+        msg.innerText = "⚡ 일괄 입력 중입니다... 마우스와 키보드를 건드리지 마세요.";
+        
+        div.appendChild(msg);
+        document.body.appendChild(div);
+        InputGuard.overlay = div;
+      }
+
+      // 2. 이벤트 캡처링으로 사용자 입력 차단
+      const events = ['mousedown', 'mouseup', 'click', 'keydown', 'keypress', 'keyup', 'wheel', 'contextmenu'];
+      events.forEach(evt => {
+        window.addEventListener(evt, InputGuard.handler, true); // capture: true
+      });
+    },
+
+    unlock: () => {
+      // 1. 오버레이 제거
+      const div = document.getElementById('neis-guard-overlay');
+      if (div) div.remove();
+
+      // 2. 리스너 해제
+      const events = ['mousedown', 'mouseup', 'click', 'keydown', 'keypress', 'keyup', 'wheel', 'contextmenu'];
+      events.forEach(evt => {
+        window.removeEventListener(evt, InputGuard.handler, true);
+      });
+    }
+  };
+
+  const simulateClick = (element, ms = 200) => new Promise(resolve => {
+    if (!element) {
+        setTimeout(resolve, ms);
+        return;
+    }
+    // 스크립트 생성 이벤트는 isTrusted가 false임
     const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window });
     const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
     const mouseUpEvent = new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window });
@@ -88,26 +154,18 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
     setTimeout(resolve, ms);
   });
 
-
   function normalizeToKeyboardChars(text) {
     if (!text) return '';
     return text
-      // ‘ ’ ‚ ‛ ′ ‵ → '
       .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
-      // “ ” „ ‟ ″ ‶ → "
       .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
-      // 하이픈/대시류(- ‒ – — ―) → -
       .replace(/[\u2010-\u2015]/g, '-')
-      // … → ...
       .replace(/\u2026/g, '...')
-      // NBSP, 전각 공백 → 보통 공백
       .replace(/\u00A0/g, ' ')
       .replace(/\u3000/g, ' ')
-      // 전각/호환 문자들을 가능한 한 키보드 문자로
       .normalize('NFKC');
   }
 
-  // "2행 특기사항 ..." → 2
   function getRowNumber(el) {
     if (!el) return null;
     const aria = el.getAttribute('aria-label') ?? '';
@@ -115,14 +173,10 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
     return m ? Number(m[1]) : null;
   }
 
-  // ClipboardEvent → 항상 "정규화된 문자열 배열"로 반환
-  // - HTML 테이블이면: 각 tr의 textContent를 정규화해서 배열로
-  // - 아니면: text/plain을 정규화해서 [ string ] 으로
   function getArrayFromEvent(e) {
     const clipboard = e.clipboardData || window.clipboardData;
     if (!clipboard) return [];
 
-    // 1) HTML 테이블 시도
     const html = clipboard.getData('text/html') || '';
     if (html) {
       const parser = new DOMParser();
@@ -135,32 +189,99 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
           .map(row => normalizeToKeyboardChars(row.textContent.trim()))
           .filter(text => text.length > 0);
 
-        if (arr.length > 0) {
-          return arr;
-        }
+        if (arr.length > 0) return arr;
       }
     }
 
-    // 2) HTML 테이블이 아니면 text/plain → [ normalizedString ]
     const plain = clipboard.getData('text/plain') || '';
     if (!plain) return [];
 
     return [normalizeToKeyboardChars(plain)];
   }
 
-  // paste: array와 element(=textarea)에 따라
-  // - 기본 붙여넣기 대체 (첫 줄만)
-  // - 일괄 붙여넣기(confirm 후 pasteArray 호출)
-  // 을 모두 처리하고, 이벤트를 막을지 여부도 여기서 결정
+  // ★★★ [수정] pasteArray 함수 ★★★
+  async function pasteArray(array, startRow, selectorSuffix) {
+    
+    // [잠금] 사용자 입력만 차단
+    InputGuard.lock();
+
+    try {
+      for (let i = 0; i < array.length; i++) {
+        // 비상 탈출: 사용자가 페이지를 이동했거나 DOM이 사라진 경우
+        if (!document.getElementById('neis-guard-overlay')) {
+             InputGuard.lock(); // 다시 잠금
+        }
+
+        const row = startRow + i;
+        const text = array[i];
+        
+        // 셀 찾기
+        const selector = `div[aria-label^="${row}행"][aria-label*="${selectorSuffix}"]`;
+        const element = document.querySelector(selector);
+        
+        if (!element) {
+            console.warn(`[스킵] ${row}행 요소를 찾을 수 없음`);
+            continue;
+        }
+
+        // 클릭 시뮬레이션 (InputGuard는 isTrusted=false인 이 이벤트를 통과시킴)
+        await simulateClick(element, 150); // NEIS 반응 속도 고려
+
+        let activeInput = document.activeElement;
+
+        // 포커스 확인 및 재시도
+        if (!activeInput || (activeInput.tagName !== 'TEXTAREA' && activeInput.tagName !== 'INPUT')) {
+            await new Promise(r => setTimeout(r, 100));
+            activeInput = document.activeElement;
+        }
+
+        if (activeInput && (activeInput.tagName === 'TEXTAREA' || activeInput.tagName === 'INPUT')) {
+          activeInput.focus();
+          
+          // [수정] 기존 값이 있다면 전체 선택하여 덮어쓰기 모드로 진입
+          activeInput.select();
+          
+          // execCommand 사용 (가장 안정적)
+          const success = document.execCommand('insertText', false, text);
+          
+          // 실패 시 fallback
+          if (!success) {
+              const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+              nativeInputValueSetter.call(activeInput, text);
+              activeInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          // 엔터키 입력 (저장 트리거)
+          await new Promise(r => setTimeout(r, 50)); 
+          activeInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', keyCode: 13 }));
+          
+        } else {
+          console.error(`[실패] ${row}행 - 입력창 활성화 실패`);
+        }
+        
+        // 다음 입력 전 딜레이
+        await new Promise(r => setTimeout(r, 100));
+      }
+    } catch (e) {
+      console.error("일괄 입력 중 오류:", e);
+      alert("오류가 발생하여 입력이 중단되었습니다.");
+    } finally {
+      // [해제]
+      InputGuard.unlock();
+    }
+  }
+
+  function getSelectorSuffix(el) {
+    if (!el) return null;
+    const aria = el.getAttribute('aria-label') ?? '';
+    const m = aria.match(/^\d+행\s*(특기사항|행동특성 및 종합의견|희망분야)/);
+    return m ? m[1] : null;
+  }
+
   function paste(array, element, e) {
     if (!Array.isArray(array) || array.length === 0) return;
+    if (!(element instanceof HTMLTextAreaElement)) return;
 
-    // 방어: textarea 아닌 경우는 건드리지 않음 (normalize는 textarea에만 적용)
-    if (!(element instanceof HTMLTextAreaElement)) {
-      return;
-    }
-
-    // "일반적인 붙여넣기" = 정규화된 첫 줄만 삽입
     const doSinglePaste = () => {
       const first = String(array[0] ?? '');
       e.preventDefault();
@@ -169,100 +290,38 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
       document.execCommand('insertText', false, first);
     };
 
-    // 1) array 길이가 2 미만이면 → 그냥 첫 줄만 붙여넣기
     if (array.length < 2) {
       doSinglePaste();
       return;
     }
 
-    // 2) 행 번호 추출 실패 → 오류 알리고 첫 줄만 붙여넣기
     const rowNumber = getRowNumber(element);
     if (!rowNumber) {
-      alert('일괄 붙여넣기 오류: 현재 위치한 행 번호를 확인할 수 없습니다.');
+      alert('일괄 붙여넣기 오류: 행 번호를 확인할 수 없습니다.');
       doSinglePaste();
       return;
     }
 
-    // 3) 일괄 붙여넣기 여부 확인
-    const ok = confirm(
-      `[일괄 붙여넣기]\n\n${rowNumber}행부터 ${array.length}건을 입력하시겠습니까?`
-    );
+    const ok = confirm(`[일괄 붙여넣기]\n\n${rowNumber}행부터 ${array.length}건을 입력하시겠습니까?`);
 
     if (!ok) {
-      // 5) 아니면 첫 데이터(array[0])만 일반적인(=정규화된) 붙여넣기
       doSinglePaste();
       return;
     }
 
-    // 6) 맞다면 array 전체를 rowNumber 행부터 붙여넣기
     e.preventDefault();
     e.stopImmediatePropagation();
     const selectorSuffix = getSelectorSuffix(element);
-    pasteArray(array, rowNumber, selectorSuffix); // 이 함수는 나중에 구현
-  }
-
-  async function pasteArray(array, startRow, selectorSuffix) {
-    let successCount = 0;
-    for (let i = 0; i < array.length; i++) {
-      const row = startRow + i;
-      const text = array[i];
-      console.log({ row, text });
-      const selector = `div[aria-label^="${row}행"][aria-label*="${selectorSuffix}"]`;
-      const element = document.querySelector(selector);
-      console.log({ element });
-      await simulateClick(element);
-
-      let activeInput = document.activeElement;
-
-      if (activeInput && (activeInput.tagName === 'TEXTAREA' || activeInput.tagName === 'INPUT')) {
-          console.log(`[성공] 에디터 활성화됨`, activeInput);
-          
-          activeInput.focus();
-          activeInput.setSelectionRange(0, activeInput.value.length);
-          
-          // 값 주입 (execCommand 우선 시도)
-          const success = document.execCommand('insertText', false, text);
-          if (!success) activeInput.value = text;
-
-          activeInput.dispatchEvent(new Event('input', { bubbles: true }));
-          activeInput.dispatchEvent(new Event('change', { bubbles: true }));
-          
-          // 엔터키 (저장 확정)
-          activeInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', keyCode: 13 }));
-          
-          successCount++;
-      } else {
-          console.error(`[실패] ${row}행 - 에디터 활성화 실패`);
-      }
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-
-  function getSelectorSuffix(el) {
-    if (!el) return null;
-
-    const aria = el.getAttribute('aria-label') ?? '';
-
-    // 예:
-    // "3행 특기사항 적극적으로..."            → "특기사항"
-    // "5행 행동특성 및 종합의견 또래와..."    → "행동특성 및 종합의견"
-    // "2행 희망분야 간호 관련..."             → "희망분야"
-    const m = aria.match(
-      /^\d+행\s*(특기사항|행동특성 및 종합의견|희망분야)/
-    );
-
-    return m ? m[1] : null;
+    pasteArray(array, rowNumber, selectorSuffix); 
   }
 
   function setupBasicFeatures() {
-    // 1. 붙여넣기 감지
     window.addEventListener('paste', (e) => {
-      const array = getArrayFromEvent(e);         // 1) 붙여넣을 데이터 배열로 만들기 (이미 normalize 적용됨)
-      const activeElement = document.activeElement; // 2) activeElement 구하기
-      paste(array, activeElement, e);           // 3) 붙여넣기 로직 위임
+      const array = getArrayFromEvent(e);
+      const activeElement = document.activeElement;
+      paste(array, activeElement, e);
     }, true);
 
-    // 2. 단축키
     window.addEventListener('keydown', (e) => {
       if (e.key === 'F3' || (e.ctrlKey && (e.key === 'f' || e.key === 'F'))) {
         e.preventDefault(); e.stopPropagation();
@@ -270,7 +329,6 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
       }
     }, true);
 
-    // 3. 탭 열기
     document.addEventListener('click', (e) => {
       const menuBtn = e.target.closest('.menuBtn');
       if (menuBtn) {
@@ -282,7 +340,6 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
       }
     }, true);
 
-    // 4. 비밀번호
     setInterval(() => {
       const certInput = document.querySelector('input[name="certPassword"]');
       if (certInput && !certInput.dataset.listenerAttached) {

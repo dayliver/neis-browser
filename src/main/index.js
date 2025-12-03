@@ -4,6 +4,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+app.name = '나이스브라우저';
+
 let mainWindow
 
 function createWindow() {
@@ -11,7 +13,7 @@ function createWindow() {
     width: 1280, height: 900, show: false, 
     autoHideMenuBar: true, // 메뉴바 다시 숨김
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#f3f3f3', symbolColor: '#000000', height: 45 },
+    titleBarOverlay: { color: '#dadada', symbolColor: '#000000', height: 45 },
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
