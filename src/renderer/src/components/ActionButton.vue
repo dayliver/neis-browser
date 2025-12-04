@@ -18,7 +18,6 @@ import { computed } from 'vue';
 // Props 정의 (부모에게 받을 데이터)
 const props = defineProps({
   icon: { type: String, default: '' },
-  emoji: { type: String, required: true },
   label: { type: String, default: '' }, // 툴팁 역할
   variant: { type: String, default: 'default' } // 'default', 'primary', 'danger'
 });
