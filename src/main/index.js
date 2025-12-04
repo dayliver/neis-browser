@@ -10,7 +10,7 @@ let mainWindow
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280, height: 900, show: false, 
+    width: 1168, height: 640, show: false, 
     autoHideMenuBar: true, // 메뉴바 다시 숨김
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#dadada', symbolColor: '#000000', height: 45 },

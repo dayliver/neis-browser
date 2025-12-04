@@ -157,13 +157,26 @@ if (!window.location.href.includes('localhost') && !window.location.href.include
   function normalizeToKeyboardChars(text) {
     if (!text) return '';
     return text
+      // 1. 기존: 특수 기호 정규화
       .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
       .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
       .replace(/[\u2010-\u2015]/g, '-')
       .replace(/\u2026/g, '...')
-      .replace(/\u00A0/g, ' ')
-      .replace(/\u3000/g, ' ')
-      .normalize('NFKC');
+      
+      // 2. 기존: 특수 공백(NBSP, 전각공백)을 일반 공백으로
+      .replace(/[\u00A0\u3000]/g, ' ')
+
+      // 3. 기존: 유니코드 정규화
+      .normalize('NFKC')
+
+      // ★ [신규] 줄바꿈(엔터), 탭, 폼피드 등 모든 제어 문자를 공백으로 치환
+      .replace(/[\r\n\t\v\f]/g, ' ')
+
+      // ★ [신규] 2개 이상의 연속된 공백을 1개의 공백으로 압축
+      .replace(/\s{2,}/g, ' ')
+
+      // ★ [신규] 문자열 앞뒤의 불필요한 공백 제거
+      .trim();
   }
 
   function getRowNumber(el) {
