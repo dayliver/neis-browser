@@ -5,16 +5,6 @@
       <p class="warning">저장해두면 클릭 시 자동 입력됩니다.</p>
       
       <div class="input-group">
-        <label>메모</label>
-        <input 
-          :value="form.id" 
-          @input="$emit('update:id', $event.target.value)"
-          type="text" 
-          placeholder="예: 업무용" 
-        />
-      </div>
-      
-      <div class="input-group">
         <label>비밀번호</label>
         <input 
           :value="form.password" 
@@ -22,6 +12,16 @@
           type="password" 
           placeholder="입력" 
           @keyup.enter="$emit('save')" 
+        />
+      </div>
+
+      <div class="input-group">
+        <label>메모/힌트</label>
+        <input 
+          :value="form.id" 
+          @input="$emit('update:id', $event.target.value)"
+          type="text" 
+          placeholder="예: 업무용" 
         />
       </div>
       
