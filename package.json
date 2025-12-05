@@ -1,6 +1,6 @@
 {
   "name": "neis-browser",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Web Browser only for NEIS",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -17,7 +17,7 @@
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
     "git:save": "git add . && git commit -m \"Update\" && git push",
-    "release:win": "npm run build && electron-builder --win --publish always",
+    "release:win": "node scripts/release.js",
     "push": "node scripts/push.js"
   },
   "build": {
@@ -61,20 +61,23 @@
     }
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "vue-router": "^4.6.3"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.1.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
+    "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.1",
+    "dotenv": "^17.2.3",
     "electron": "^38.1.2",
     "electron-builder": "^25.1.8",
     "electron-vite": "^4.0.1",
     "eslint": "^9.36.0",
     "eslint-plugin-vue": "^10.4.0",
+    "knip": "^5.71.0",
     "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
     "vite": "^7.1.6",
     "vue": "^3.5.21",
     "vue-eslint-parser": "^10.2.0"

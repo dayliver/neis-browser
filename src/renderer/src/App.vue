@@ -224,7 +224,7 @@ html, body, #app {
 /* 로딩 화면 스타일 */
 .loading-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: #ffffff; z-index: 999999;
+  background: #dadada; z-index: 999999;
   display: flex; align-items: center; justify-content: center;
 }
 .spinner {

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/main/index.js",
+    "src/preload/index.js",
+    "src/renderer/src/main.js",
+    "electron.vite.config.mjs"
+  ],
+  "project": [
+    "src/**/*.{js,vue}"
+  ],
+  "ignore": [
+    "**/*.d.ts"
+  ]
+}

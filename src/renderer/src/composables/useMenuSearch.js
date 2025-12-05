@@ -1,4 +1,4 @@
-import { ref, onUnmounted, toRaw } from 'vue'; // toRaw 추가
+import { ref } from 'vue';
 import { useTabs } from './useTabs';
 
 const menuData = ref([]); // 초기값을 null 대신 빈 배열 []로 변경
