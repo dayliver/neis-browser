@@ -1,6 +1,6 @@
 {
   "name": "neis-browser",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "description": "Web Browser only for NEIS",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -18,7 +18,8 @@
     "build:linux": "npm run build && electron-builder --linux",
     "git:save": "git add . && git commit -m \"Update\" && git push",
     "release:win": "node scripts/release.js",
-    "push": "node scripts/push.js"
+    "push": "node scripts/push.js",
+    "update:config": "node scripts/update-config.js"
   },
   "build": {
     "appId": "com.neisbrowser.app",

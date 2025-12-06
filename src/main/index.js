@@ -106,6 +106,18 @@ app.whenReady().then(() => {
     if (mainWindow) mainWindow.webContents.send('res-extract-menu-to-vue', data);
   });
 
+  // 붙여넣기 요청 중계 (Preload -> Main -> Vue)
+  ipcMain.on('req-paste-grid', (event, payload) => {
+    // 메시지를 보낸 웹컨텐츠(Webview)가 속한 윈도우 찾기
+    const webContents = event.sender;
+    const win = BrowserWindow.fromWebContents(webContents) || BrowserWindow.getAllWindows()[0];
+    
+    if (win) {
+      // Vue 렌더러로 그대로 토스
+      win.webContents.send('req-paste-grid', payload);
+    }
+  });
+
   // (단축키 관련 핸들러 삭제됨)
 
   createWindow()

@@ -11,11 +11,6 @@
         class="webview-container"
         v-show="currentTabId === tab.id"
       >
-        <!-- 
-          [수정 포인트] 
-          @did-start-loading 제거 -> 불필요한 '로딩중' 덮어쓰기 방지
-          @did-start-navigation 추가 -> 진짜 페이지 이동 시에만 '로딩중' 표시
-        -->
         <webview
           :src="tab.src"
           :preload="preloadPath"
@@ -52,7 +47,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'; // [수정] onUnmounted 추가
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 
 // 컴포넌트 임포트
@@ -64,40 +59,27 @@ import MenuSearchModal from '../components/MenuSearchModal.vue';
 import { useTabs } from '../composables/useTabs';
 import { usePassword } from '../composables/usePassword';
 import { useMenuSearch } from '../composables/useMenuSearch';
+import { useScriptExecutor } from '../composables/useScriptExecutor'; // ★ 실행기 추가
 
 const router = useRouter();
 const preloadPath = ref('');
 
-// 1. 탭 로직
-const { 
-  tabs, currentTabId, createTab, updateTitle, getActiveWebview 
-} = useTabs();
+const { tabs, currentTabId, createTab, updateTitle, getActiveWebview } = useTabs();
+const { showLoginModal, loginForm, loadSavedPassword, saveLoginInfo, setupPasswordListeners } = usePassword(getActiveWebview);
+const { menuData, isSearchOpen, setupMenuListeners, executeMenu, autoFetchMenuData } = useMenuSearch();
+const { runRemoteScript } = useScriptExecutor(); // ★ 실행기 사용
 
-// 2. 비밀번호 로직
-const { 
-  showLoginModal, loginForm, loadSavedPassword, saveLoginInfo, setupPasswordListeners 
-} = usePassword(getActiveWebview);
-
-// 3. 메뉴 검색 로직 (autoFetchMenuData 포함)
-const { 
-  menuData, isSearchOpen, setupMenuListeners, executeMenu, autoFetchMenuData 
-} = useMenuSearch();
-
-// 4. 웹뷰 로딩 완료 핸들러 (자동 수집 시작)
+// 1. 웹뷰 로딩 핸들러
 const onWebviewLoad = (tab) => {
-  // [수정] 로딩 완료 시점의 최신 타이틀을 우선적으로 가져옴
   let currentTitle = tab.title || '';
-  
-  // 타이틀이 없거나 '로딩중'인 경우, 실제 웹뷰의 타이틀을 다시 확인
   if ((!currentTitle || currentTitle === '로딩중...') && tab.webview) {
      const webviewTitle = tab.webview.getTitle();
      if (webviewTitle) {
          updateTitle(tab, webviewTitle);
-         currentTitle = webviewTitle; // 검사용 변수 업데이트
+         currentTitle = webviewTitle; 
      }
   }
 
-  // [수정] 업데이트된 currentTitle로 조건 검사
   if (currentTitle.includes('나이스') || currentTitle.includes('업무포털') || currentTitle.includes('NEIS')) {
       console.log('Vue: 메인 화면 감지 -> 데이터 수집 시작');
       if(autoFetchMenuData) autoFetchMenuData(true);
@@ -105,31 +87,58 @@ const onWebviewLoad = (tab) => {
   }
 };
 
-// [추가] 네비게이션 시작 핸들러
-// 진짜 페이지 이동(MainFrame)이고, 페이지 내 앵커 이동(SameDocument)이 아닐 때만 '로딩중' 표시
 const onNavStart = (tab, e) => {
   if (e.isMainFrame && !e.isSameDocument) {
     updateTitle(tab, '로딩중...');
   }
 };
 
-// 탭 생성 요청 핸들러 (분리하여 제거 가능하게 함)
 const handleNewTabRequest = (...args) => {
   const foundUrl = args.find(arg => typeof arg === 'string' && arg.startsWith('http'));
   if (foundUrl) createTab(foundUrl, '로딩중...');
 };
 
-// 5. 초기화
+// ★★★ [수정] 붙여넣기 요청 핸들러 ★★★
+// preload에서 이미 텍스트를 추출해서 보냈으므로, 여기선 받아서 넘기기만 하면 됨
+const handlePasteRequest = async (payload) => {
+  console.log('[Vue] 붙여넣기 요청 수신:', payload);
+  const webview = getActiveWebview();
+  if (!webview) return;
+
+  // Preload가 보내준 텍스트 (없으면 중단)
+  const clipboardText = payload.clipboardText;
+  if (!clipboardText) {
+    console.warn("전달된 텍스트가 없습니다.");
+    return;
+  }
+
+  const row = payload.startRow;
+  if(confirm(`[나이스브라우저]\n\n${row}행부터 붙여넣기를 시작하시겠습니까?`)) {
+    
+    // 원격 스크립트 실행
+    // normalizeToKeyboardChars는 원격 스크립트 안에서 실행됩니다.
+    const res = await runRemoteScript(webview, 'pasteToGrid', {
+      clipboardText: clipboardText,
+      startRow: row,
+      selectorSuffix: payload.selectorSuffix
+    });
+
+    if (!res.success) {
+      console.error("Paste Script Error:", res.error);
+      alert("붙여넣기 중 오류가 발생했습니다.\n" + (res.error || 'Unknown Error'));
+    }
+  }
+};
+
 onMounted(async () => {
-  setupMenuListeners();     // 단축키 리스너
-  setupPasswordListeners(); // 비밀번호 입력 리스너
+  setupMenuListeners();     
+  setupPasswordListeners(); 
 
   // Preload 경로
   if (window.electron?.ipcRenderer) {
     try {
       const rawPath = await window.electron.ipcRenderer.getPreloadPath();
       preloadPath.value = 'file:///' + rawPath.replace(/\\/g, '/');
-      console.log('Vue: Preload 경로 ->', preloadPath.value);
     } catch (e) { console.error(e); }
   }
 
@@ -142,18 +151,21 @@ onMounted(async () => {
   // 비밀번호 로드
   await loadSavedPassword();
 
-  // 탭 생성 요청 리스너 등록
+  // 리스너 등록
   if (window.electron?.ipcRenderer) {
-    // [수정] 기존 리스너 제거 후 등록 (중복 방지 안전장치)
     window.electron.ipcRenderer.removeAllListeners('request-new-tab');
     window.electron.ipcRenderer.on('request-new-tab', handleNewTabRequest);
+
+    // ★ 붙여넣기 리스너 등록
+    window.electron.ipcRenderer.removeAllListeners('req-paste-grid');
+    window.electron.ipcRenderer.on('req-paste-grid', handlePasteRequest);
   }
 });
 
-// [수정] 컴포넌트 해제 시 리스너 제거
 onUnmounted(() => {
   if (window.electron?.ipcRenderer) {
     window.electron.ipcRenderer.removeAllListeners('request-new-tab');
+    window.electron.ipcRenderer.removeAllListeners('req-paste-grid');
   }
 });
 </script>
