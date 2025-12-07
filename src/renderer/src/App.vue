@@ -2,6 +2,7 @@
   <div id="app-container">
     <!-- 0. 로딩 화면 -->
     <div v-if="isLoading" class="loading-overlay">
+      <div>자동 업데이트 테스트 (0.5.4)</div>
       <div class="spinner"></div>
     </div>
 
