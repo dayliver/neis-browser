@@ -1,5 +1,5 @@
 // import { app, shell, BrowserWindow, ipcMain, safeStorage } from 'electron'
-import { app, shell, BrowserWindow, ipcMain, safeStorage, Menu, MenuItem } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, safeStorage, Menu, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
