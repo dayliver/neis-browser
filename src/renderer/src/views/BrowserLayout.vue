@@ -95,28 +95,47 @@ const onNavStart = (tab, e) => {
 
 const handleNewTabRequest = (...args) => {
   const foundUrl = args.find(arg => typeof arg === 'string' && arg.startsWith('http'));
-  if (foundUrl) createTab(foundUrl, '로딩중...');
+  
+  if (foundUrl) {
+    createTab(foundUrl, '로딩중...');
+
+    // ★★★ [이동됨] 여기서 전체화면 요청! ★★★
+    // 즉, 로그인 후 업무 시스템이 팝업으로 뜰 때 창이 커집니다.
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.send('req-window-maximize');
+    }
+  }
 };
 
 // ★★★ [수정] 붙여넣기 요청 핸들러 ★★★
-// preload에서 이미 텍스트를 추출해서 보냈으므로, 여기선 받아서 넘기기만 하면 됨
 const handlePasteRequest = async (payload) => {
   console.log('[Vue] 붙여넣기 요청 수신:', payload);
   const webview = getActiveWebview();
   if (!webview) return;
 
-  // Preload가 보내준 텍스트 (없으면 중단)
   const clipboardText = payload.clipboardText;
   if (!clipboardText) {
     console.warn("전달된 텍스트가 없습니다.");
     return;
   }
 
+  // 1. 붙여넣을 데이터 개수 미리 계산
+  // (빈 줄은 제외하고 카운트합니다)
+  const items = clipboardText
+    .split(/[\r\n]+/)                // 줄바꿈으로 자르고
+    .filter(t => t.trim().length > 0); // 공백만 있는 줄 제거
+
+  const count = items.length;
+  if (count === 0) return;
+
   const row = payload.startRow;
-  if(confirm(`[나이스브라우저]\n\n${row}행부터 붙여넣기를 시작하시겠습니까?`)) {
+  
+  // 2. 메시지 수정: "n행부터 m개의 자료를..."
+  const msg = `[나이스브라우저]\n\n${row}행부터 총 ${count}개의 자료를 붙여넣으시겠습니까?\n(기존 내용은 덮어씌워집니다)`;
+
+  if(confirm(msg)) {
     
     // 원격 스크립트 실행
-    // normalizeToKeyboardChars는 원격 스크립트 안에서 실행됩니다.
     const res = await runRemoteScript(webview, 'pasteToGrid', {
       clipboardText: clipboardText,
       startRow: row,

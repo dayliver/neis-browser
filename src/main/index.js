@@ -10,7 +10,7 @@ let mainWindow
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1168, height: 640, show: false, 
+    width: 1280, height: 720, show: false, 
     autoHideMenuBar: true, // 메뉴바 다시 숨김
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#dadada', symbolColor: '#000000', height: 45 },
@@ -115,6 +115,13 @@ app.whenReady().then(() => {
     if (win) {
       // Vue 렌더러로 그대로 토스
       win.webContents.send('req-paste-grid', payload);
+    }
+  });
+
+  // ★★★ [추가] 윈도우 최대화 요청 처리 핸들러 ★★★
+  ipcMain.on('req-window-maximize', () => {
+    if (mainWindow && !mainWindow.isMaximized()) {
+      mainWindow.maximize();
     }
   });
 
