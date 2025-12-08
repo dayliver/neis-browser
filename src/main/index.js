@@ -1,31 +1,34 @@
-// import { app, shell, BrowserWindow, ipcMain, safeStorage } from 'electron'
-import { app, shell, BrowserWindow, ipcMain, safeStorage, Menu, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { autoUpdater } from 'electron-updater'
 import { statSync, createReadStream, writeFileSync, existsSync } from 'fs'
 
-app.name = '나이스브라우저';
-
-let mainWindow
-
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280, height: 720, show: false, 
-    autoHideMenuBar: true, // 메뉴바 다시 숨김
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#dadada', symbolColor: '#000000', height: 45 },
+  const mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 720,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden', 
+    // ★★★ [수정 1] 윈도우 컨트롤 버튼 부활 및 스타일링 ★★★
+    titleBarOverlay: {
+      color: '#dadada',      // BrowserTitleBar 배경색과 일치시킴
+      symbolColor: '#555555', // 아이콘 색상 (검은색 계열)
+      height: 45             // BrowserTitleBar 높이와 일치시킴
+    },
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webviewTag: true,
-      devTools: true
+      webviewTag: true
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow.show())
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -38,30 +41,44 @@ function createWindow() {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // ★★★ [자동 업데이트 설정 시작] ★★★
+  // =========================================================
+  // [0] 기본 필수 핸들러
+  // =========================================================
   
-  // 1. 코드 서명 검증 무시 (인증서 없을 때 필수)
-  autoUpdater.verifyUpdateCodeSignature = false;
-  
-  // 2. 업데이트 로그 (선택 사항, 개발 중 확인용)
-  autoUpdater.logger = require("electron-log");
-  autoUpdater.logger.transports.file.level = "info";
+  ipcMain.handle('get-preload-path', () => {
+    return join(__dirname, '../preload/index.js')
+  })
 
-  // 3. 업데이트 확인 주기 (앱 켜지고 3초 뒤 확인 시작)
-  // 개발 모드(is.dev)에서는 동작하지 않으므로 빌드 후에만 작동함
+  ipcMain.handle('encrypt-password', async (_, plainText) => {
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.encryptString(plainText).toString('hex')
+    }
+    throw new Error('Encryption not available')
+  })
+
+  ipcMain.handle('decrypt-password', async (_, encryptedHex) => {
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(Buffer.from(encryptedHex, 'hex'))
+    }
+    throw new Error('Decryption not available')
+  })
+
+
+  // =========================================================
+  // [1] 자동 업데이트 설정
+  // =========================================================
+  autoUpdater.verifyUpdateCodeSignature = false; 
+
   if (!is.dev) {
     setTimeout(() => {
       autoUpdater.checkForUpdatesAndNotify();
     }, 3000);
   }
 
-  // [이벤트 1] 업데이트가 감지되었을 때
   autoUpdater.on('update-available', () => {
-    // 사용자에게 알리거나 조용히 다운로드 시작 (여기선 자동 다운로드됨)
     console.log('업데이트 발견! 다운로드 시작...');
   });
 
-  // [이벤트 2] 다운로드 완료 후 설치 유도
   autoUpdater.on('update-downloaded', () => {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
@@ -69,153 +86,122 @@ function createWindow() {
       message: '새로운 버전이 다운로드되었습니다.\n지금 재시작하여 설치하시겠습니까?',
       buttons: ['지금 재시작', '나중에']
     }).then((result) => {
-      if (result.response === 0) { // '지금 재시작' 클릭 시
-        autoUpdater.quitAndInstall(false, true); // (silent, forceRunAfter)
+      if (result.response === 0) {
+        autoUpdater.quitAndInstall(false, true);
       }
     });
   });
 
-  // [이벤트 3] 에러 발생 시
   autoUpdater.on('error', (err) => {
     console.error('업데이트 에러:', err);
-    // 필요하다면 dialog로 사용자에게 알림
-  });
-  
-  // ★★★ [자동 업데이트 설정 끝] ★★★
-}
-
-// ★★★ [신규] 메뉴 생성 함수 ★★★
-function setupAppMenu() {
-  const template = [
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' }
-      ]
-    },
-    {
-      label: 'Shortcuts',
-      submenu: [
-        {
-          label: 'Search',
-          accelerator: 'F3', // F3 키 등록
-          click: () => {
-            console.log('[Main] F3 눌림 -> Vue로 전송');
-            if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
-          }
-        },
-        {
-          label: 'Find',
-          accelerator: 'CommandOrControl+F', // Ctrl+F 등록
-          click: () => {
-            console.log('[Main] Ctrl+F 눌림 -> Vue로 전송');
-            // if (mainWindow) mainWindow.webContents.send('cmd-show-alert');
-            if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
-          }
-        }
-      ]
-    }
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-}
-
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.electron')
-
-  setupAppMenu();
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
-
-  // 1. 기본 핸들러
-  ipcMain.handle('encrypt-password', async (e, t) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(t).toString('hex') : null);
-  ipcMain.handle('decrypt-password', async (e, h) => safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(h, 'hex')) : null);
-  ipcMain.handle('get-preload-path', () => join(__dirname, '../preload/index.js'));
-
-  // 2. 중계 핸들러
-  ipcMain.on('bridge-req-pass', () => mainWindow?.webContents.send('bridge-req-pass-to-vue'));
-  ipcMain.on('req-type-password', () => mainWindow?.webContents.send('req-type-password-to-vue'));
-  ipcMain.on('bridge-create-tab', (e, url) => mainWindow?.webContents.send('request-new-tab', url));
-
-  // 단축키 중계 (Preload -> Vue)
-  ipcMain.on('req-toggle-search', () => {
-    console.log('[Main] 내부 단축키 중계');
-    if (mainWindow) mainWindow.webContents.send('cmd-toggle-search');
-  });
-  
-  // 메뉴 데이터 중계
-  ipcMain.on('bridge-menu-data', (e, data) => {
-    if (mainWindow) mainWindow.webContents.send('res-extract-menu-to-vue', data);
   });
 
-  // 붙여넣기 요청 중계 (Preload -> Main -> Vue)
-  ipcMain.on('req-paste-grid', (event, payload) => {
-    // 메시지를 보낸 웹컨텐츠(Webview)가 속한 윈도우 찾기
-    const webContents = event.sender;
-    const win = BrowserWindow.fromWebContents(webContents) || BrowserWindow.getAllWindows()[0];
-    
-    if (win) {
-      // Vue 렌더러로 그대로 토스
-      win.webContents.send('req-paste-grid', payload);
-    }
+
+  // =========================================================
+  // [2] 기능 핸들러 (UI 제어, 포커스 등)
+  // =========================================================
+
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
   });
 
-  // ★★★ [추가] 윈도우 최대화 요청 처리 핸들러 ★★★
   ipcMain.on('req-window-maximize', () => {
     if (mainWindow && !mainWindow.isMaximized()) {
       mainWindow.maximize();
     }
   });
 
-  const getLogPath = () => {
-    return join(app.getPath('userData'), 'logs/main.log');
-  };
+  // ★★★ [수정 2] 누락된 탭 생성 핸들러 복구 ★★★
+  ipcMain.on('bridge-create-tab', (event, url) => {
+    const webContents = event.sender;
+    const win = BrowserWindow.fromWebContents(webContents) || mainWindow;
+    if (win) {
+      // Vue(Renderer)로 "새 탭 만들어라" 명령 전달
+      win.webContents.send('request-new-tab', url);
+    }
+  });
+
+  // 메뉴 데이터 전달 (Preload -> Vue)
+  ipcMain.on('bridge-menu-data', (event, payload) => {
+    const webContents = event.sender;
+    const win = BrowserWindow.fromWebContents(webContents) || mainWindow;
+    if (win) {
+      // Vue로직(useMenuSearch)이 리스너를 갖고 있지 않다면 무시되지만,
+      // 확장성을 위해 남겨둡니다. (현재 구조에선 Webview.executeJavaScript로 직접 가져오므로 필수는 아님)
+    }
+  });
+
+  ipcMain.on('req-paste-grid', (event, payload) => {
+    const webContents = event.sender;
+    const win = BrowserWindow.fromWebContents(webContents) || mainWindow;
+    if (win) {
+      win.webContents.send('req-paste-grid', payload);
+    }
+  });
+
+  // 비밀번호 입력 요청
+  ipcMain.on('req-type-password', (event) => {
+    const webContents = event.sender;
+    const win = BrowserWindow.fromWebContents(webContents) || mainWindow;
+    if (win) {
+      win.webContents.send('req-type-password-to-vue');
+    }
+  });
+
+  // 포커스 복구
+  ipcMain.on('req-fix-ime-focus', () => {
+    if (mainWindow) {
+      mainWindow.blur();
+      setTimeout(() => {
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.focus();
+          mainWindow.webContents.focus();
+        }
+      }, 50); 
+    }
+  });
+
+  // ★★★ [누락된 코드 추가] 검색 단축키 중계 (Preload -> Main -> Vue) ★★★
+  ipcMain.on('req-toggle-search', () => {
+    if (mainWindow) {
+      // Vue(Renderer)에게 "검색창 열어라" 명령 전달
+      mainWindow.webContents.send('cmd-toggle-search');
+    }
+  });
+
+  // =========================================================
+  // [3] 로그 뷰어 핸들러
+  // =========================================================
+  
+  const getLogPath = () => join(app.getPath('userData'), 'logs/main.log');
 
   ipcMain.handle('get-system-log', async (event, readSizeBytes = 51200) => {
     const logPath = getLogPath();
-    
-    if (!existsSync(logPath)) {
-      return "로그 파일이 존재하지 않습니다.";
-    }
+    if (!existsSync(logPath)) return "로그 파일이 존재하지 않습니다.";
 
     try {
-      // 1. 파일 전체 크기 확인
       const stats = statSync(logPath);
       const fileSize = stats.size;
-
-      // 2. 읽기 시작 위치 계산 (파일 끝 - 요청한 크기)
-      // 파일이 요청 크기보다 작으면 0부터 읽음
       const start = Math.max(0, fileSize - readSizeBytes);
       
-      // 3. 스트림으로 해당 부분만 읽기
       return new Promise((resolve, reject) => {
         const stream = createReadStream(logPath, { start, encoding: 'utf8' });
         let data = '';
-        
-        stream.on('data', (chunk) => { data += chunk; });
+        stream.on('data', chunk => data += chunk);
         stream.on('end', () => { 
-          // 앞부분이 잘릴 수 있으므로 "[...이전 로그 생략...]" 표시 추가
-          const prefix = start > 0 ? `... (이전 로그 ${Math.floor(start/1024)}KB 생략) ...\n\n` : '';
+          const prefix = start > 0 ? `... (Skip ${Math.floor(start/1024)}KB) ...\n` : '';
           resolve(prefix + data); 
         });
-        stream.on('error', (err) => reject(err.message));
+        stream.on('error', err => reject(err.message));
       });
-
     } catch (err) {
       return `로그 읽기 실패: ${err.message}`;
     }
   });
 
   ipcMain.handle('delete-system-log', async () => {
-    const logPath = getLogPath();
     try {
-      // 파일 내용을 빈 문자열로 덮어쓰기
-      writeFileSync(logPath, '');
+      writeFileSync(getLogPath(), '');
       return true;
     } catch (error) {
       console.error('로그 삭제 실패:', error);
@@ -223,7 +209,15 @@ app.whenReady().then(() => {
     }
   });
 
-  // (단축키 관련 핸들러 삭제됨)
+  return mainWindow
+}
+
+app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.neisbrowser.app')
+
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
 
   createWindow()
 
@@ -233,5 +227,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
 })

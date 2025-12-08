@@ -13,7 +13,8 @@ const api = {
   decryptPassword: (hex) => ipcRenderer.invoke('decrypt-password', hex),
   getPreloadPath: () => ipcRenderer.invoke('get-preload-path'),
   getSystemLog: (size) => ipcRenderer.invoke('get-system-log', size),
-  deleteSystemLog: () => ipcRenderer.invoke('delete-system-log')
+  deleteSystemLog: () => ipcRenderer.invoke('delete-system-log'),
+  fixImeFocus: () => ipcRenderer.send('req-fix-ime-focus')
 }
 
 if (process.contextIsolated) {

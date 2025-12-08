@@ -216,7 +216,7 @@ const closeModal = () => {
   emit('close');
 };
 
-// ★★★ [수정 1] 전역 ESC 감지 추가 ★★★
+// ★ 전역 ESC 감지
 const handleGlobalKeydown = (e) => {
   if (e.key === 'Escape') {
     closeModal();
@@ -224,13 +224,19 @@ const handleGlobalKeydown = (e) => {
 };
 
 onMounted(() => {
+  // 1차 시도 (즉시)
   nextTick(() => inputRef.value?.focus());
-  // 모달이 켜지면 전역 키보드 감시 시작
+  
+  // ★ 2차 시도 (재시도: 확인 사살)
+  // Electron/Chromium이 렌더러로 포커스를 확실히 넘길 때까지 잠시 대기
+  setTimeout(() => {
+    if (inputRef.value) inputRef.value.focus();
+  }, 80);
+
   window.addEventListener('keydown', handleGlobalKeydown);
 });
 
 onUnmounted(() => {
-  // 모달이 꺼지면 감시 해제
   window.removeEventListener('keydown', handleGlobalKeydown);
 });
 </script>
@@ -238,12 +244,11 @@ onUnmounted(() => {
 <style scoped>
 .search-overlay {
   position: fixed; 
-  
-  /* ★★★ [수정 2] 타이틀바(45px) 제외하고 아래쪽만 덮기 ★★★ */
+  /* ★ 타이틀바(45px) 제외하고 아래쪽만 덮기 */
   top: 45px; 
   left: 0; 
   width: 100%; 
-  height: calc(100% - 45px); /* 전체 높이에서 타이틀바 높이 뺌 */
+  height: calc(100% - 45px);
   
   background: rgba(0,0,0,0.4); 
   backdrop-filter: blur(3px);
@@ -253,13 +258,10 @@ onUnmounted(() => {
   z-index: 99999;
 }
 
-/* 아래는 기존 스타일 유지 */
 .search-container {
   width: 650px; max-width: 90%; background: white; border-radius: 10px;
   box-shadow: 0 15px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column; max-height: 600px;
-  /* 모달 높이가 짤릴 경우를 대비해 flex-shrink 설정 */
-  flex-shrink: 1; 
-  min-height: 0;
+  flex-shrink: 1; min-height: 0;
 }
 .search-header {
   display: flex; align-items: center; padding: 15px; border-bottom: 1px solid #eee;

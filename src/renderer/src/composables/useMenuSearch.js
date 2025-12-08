@@ -1,8 +1,8 @@
 import { ref } from 'vue';
 import { useTabs } from './useTabs';
-import { useScriptExecutor } from './useScriptExecutor'; // ★ 신규 모듈 사용
+import { useScriptExecutor } from './useScriptExecutor';
 
-const menuData = ref([]); 
+const menuData = ref([]);
 const isSearchOpen = ref(false);
 let isFetching = false;
 let retryCount = 0;
@@ -35,6 +35,7 @@ function processMenuData(menuData) {
     let currId = item.UP_MENU_ID;
     let curr = map[currId] || fallbackMap[currId]; 
     let depth = 0;
+    
     while(curr && depth < 5) {
       const currName = curr.MENU_NM || '';
       path = path ? `${currName} > ${path}` : currName;
@@ -45,7 +46,7 @@ function processMenuData(menuData) {
     return path ? `${prefix} > ${path}` : prefix;
   };
 
-  // [1] 업무 메뉴 (WORK)
+  // [1] 업무 메뉴
   const workMap = {};
   workMenu.forEach(item => { workMap[item.MENU_ID] = item; });
   const processedWorkMenu = [];
@@ -54,6 +55,7 @@ function processMenuData(menuData) {
     const level = item.menuLvl ? Number(item.menuLvl) : (item.level || 0);
     const callPage = item.CALL_PAGE ? item.CALL_PAGE.trim() : '';
     const pgmId = item.PGM_ID ? item.PGM_ID.trim() : '';
+    
     const isExecutable = callPage.length > 0 && callPage !== 'edu//' && pgmId.length > 0;
 
     if (isExecutable) {
@@ -79,7 +81,7 @@ function processMenuData(menuData) {
     }
   });
 
-  // [2] 기본 메뉴 (BASE)
+  // [2] 기본 메뉴
   const baseMap = {};
   baseMenu.forEach(item => { baseMap[item.MENU_ID] = item; });
   const processedBaseMenu = [];
@@ -109,7 +111,7 @@ function processMenuData(menuData) {
       }
   });
 
-  // [3] 승인 메뉴 (APPROVAL)
+  // [3] 승인 메뉴
   const processedApprovalMenu = approvalMenu.map(item => {
     const rawName = item.MENU_NM || '';
     return {
@@ -132,14 +134,15 @@ function processMenuData(menuData) {
 }
 
 export function useMenuSearch() {
-  const { getActiveWebview } = useTabs();
-  const { runRemoteScript } = useScriptExecutor(); // ★ 실행기 가져오기
+  const { getActiveWebview, blurActiveWebview } = useTabs();
+  const { runRemoteScript } = useScriptExecutor();
 
   const setupMenuListeners = () => {
     if (!window.electron?.ipcRenderer) return;
 
     window.electron.ipcRenderer.removeAllListeners('cmd-toggle-search');
     window.electron.ipcRenderer.on('cmd-toggle-search', () => {
+      console.log('[Vue] 단축키 수신');
       openMenuSearch();
     });
     
@@ -164,6 +167,18 @@ export function useMenuSearch() {
       return;
     }
 
+    // ★★★ [1] Renderer 차원 방어: 웹뷰 포커스 해제 ★★★
+    blurActiveWebview();
+    
+    // ★★★ [2] Renderer 차원 방어: 윈도우 포커스 ★★★
+    window.focus();
+
+    // ★★★ [3] Main Process 차원 방어: OS 입력 채널 강제 회수 (핵심) ★★★
+    if (window.electron && window.electron.ipcRenderer) {
+      // preload에 fixImeFocus가 없어도 직접 호출 가능하도록 처리
+      window.electron.ipcRenderer.send('req-fix-ime-focus');
+    }
+
     if (Array.isArray(menuData.value) && menuData.value.length > 0) {
       isSearchOpen.value = true;
       return;
@@ -174,11 +189,18 @@ export function useMenuSearch() {
     
     setTimeout(() => {
        if(!Array.isArray(menuData.value) || menuData.value.length === 0) alert("데이터를 불러오는 중입니다... 잠시 후 다시 시도해주세요.");
-       else isSearchOpen.value = true;
+       else {
+         // 데이터 로드 후 열릴 때도 동일한 3중 방어막 가동
+         blurActiveWebview();
+         window.focus();
+         if (window.electron && window.electron.ipcRenderer) {
+            window.electron.ipcRenderer.send('req-fix-ime-focus');
+         }
+         isSearchOpen.value = true;
+       }
     }, 500);
   };
 
-  // ★★★ [Refactoring] executeMenu ★★★
   const executeMenu = async (targetId) => {
     const webview = getActiveWebview();
     if (!webview || !Array.isArray(menuData.value)) return;
@@ -186,7 +208,6 @@ export function useMenuSearch() {
     const item = menuData.value.find(i => i.id === targetId || i.executeId === targetId);
     if (!item) return;
 
-    // 실행 횟수 저장
     item.count = (item.count || 0) + 1;
     const history = loadUsageHistory();
     history[item.id] = item.count; 
@@ -194,15 +215,12 @@ export function useMenuSearch() {
 
     console.log(`[실행] ${item.name} (${item.type})`);
     
-    // 1. 실행에 필요한 Payload 구성
-    // 로직은 RemoteScript(executeMenuAction)가 처리하므로, 여기선 데이터만 넘김
     const payload = {
       type: item.type,
       callPage: item.callPage || item.raw.callPage,
       menuNm: item.name,
       executeId: item.executeId,
       upId: item.upId,
-      // 4레벨 이상일 때 필요한 파라미터 조립
       params: (item.level > 4 && item.upId) ? { 
           menuId: item.id, 
           menuNm: item.name, 
@@ -211,7 +229,6 @@ export function useMenuSearch() {
       } : null
     };
 
-    // 2. 원격 스크립트 실행
     const res = await runRemoteScript(webview, 'executeMenuAction', payload);
 
     if (!res.success) {
@@ -222,7 +239,6 @@ export function useMenuSearch() {
     }
   };
 
-  // ★★★ [Refactoring] autoFetchMenuData ★★★
   const autoFetchMenuData = async (forceReset = false) => {
     const webview = getActiveWebview();
     if (!webview) return;
@@ -236,33 +252,24 @@ export function useMenuSearch() {
     if (isFetching) return;
     isFetching = true;
 
-    // 1. 원격 스크립트 실행 (extractMenuData)
-    // 인자가 없으므로 null 전달 (또는 생략)
     const res = await runRemoteScript(webview, 'extractMenuData');
     
-    // 실패 또는 결과 없음 처리
     if (!res.success || !res.result) {
         console.warn("Fetch result invalid or failed:", res.error);
-        handleRetry(webview); // 재시도 로직으로 이동
+        handleRetry(webview);
         return;
     }
 
-    const result = res.result; // 스크립트 실행 결과값
-
+    const result = res.result;
     const hasWork = result.workMenu && result.workMenu.length > 0;
     const hasOther = (result.approvalMenu && result.approvalMenu.length > 0) || (result.baseMenu && result.baseMenu.length > 0);
-    
     const isSuccess = hasWork || (hasOther && retryCount > 10);
 
     if (isSuccess) {
       console.log(`✨ [AutoFetch] 성공! (시도: ${retryCount})`);
       const processed = processMenuData(result);
-      
-      if (Array.isArray(processed)) {
-          menuData.value = processed;
-      } else {
-          menuData.value = [];
-      }
+      if (Array.isArray(processed)) menuData.value = processed;
+      else menuData.value = [];
       
       retryCount = 0;
       isFetching = false;
@@ -271,7 +278,6 @@ export function useMenuSearch() {
     }
   };
 
-  // 재시도 로직 분리 (가독성 위해)
   const handleRetry = (webview, hasOther = false, hasWork = false) => {
     isFetching = false;
     if (retryCount < 60) {
