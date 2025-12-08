@@ -31,7 +31,6 @@
             <span class="item-path" v-html="highlight(item.path)"></span>
             <div class="name-row">
               <span class="item-name" v-html="highlight(item.name)"></span>
-              <!-- 키워드로 검색된 경우 뱃지 표시 -->
               <span v-if="isKeywordMatch(item)" class="badge-keyword">#{{ currentSearchQuery }}</span>
               <span v-if="item.count > 0" class="badge-count">🔥 {{ item.count }}</span>
             </div>
@@ -42,7 +41,6 @@
       
       <div class="no-result" v-else>
         {{ query ? '검색 결과가 없습니다.' : '검색어를 입력하세요.' }}
-        <!-- 한글 변환 검색 결과임을 알림 -->
         <div v-if="isConvertedSearch" class="kor-hint">
            <strong>'{{ koreanQuery }}'</strong>(으)로 변환하여 검색했습니다.
         </div>
@@ -52,7 +50,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { engToKor } from '../utils/hangul';
 
 const props = defineProps(['menuList']);
@@ -64,12 +62,9 @@ const listRef = ref(null);
 const itemRefs = ref([]);
 const focusIndex = ref(0);
 
-// 실제로 검색에 사용된 쿼리 (영문 그대로 or 한글 변환됨)
 const currentSearchQuery = ref('');
-// 한글 변환 검색이 수행되었는지 여부
 const isConvertedSearch = ref(false);
 
-// 데이터 정규화 (배열 보장)
 const normalizedMenuList = computed(() => {
     if (!props.menuList) return [];
     if (Array.isArray(props.menuList)) return props.menuList;
@@ -81,21 +76,17 @@ const onInput = (e) => {
   focusIndex.value = 0; 
 };
 
-// 영타 -> 한글 자동 변환 쿼리
 const koreanQuery = computed(() => {
     if (!query.value) return '';
-    // 영어만 포함된 경우에만 변환 시도
     if (/^[a-zA-Z\s]+$/.test(query.value)) {
         return engToKor(query.value);
     }
     return '';
 });
 
-// ★ [수정] 검색 로직 변경: 1차(원본) -> 실패 시 2차(한글변환)
 const filteredList = computed(() => {
   const listToFilter = normalizedMenuList.value;
 
-  // 검색어 없을 때: 실행 횟수 순 정렬
   if (!query.value) {
       isConvertedSearch.value = false;
       currentSearchQuery.value = '';
@@ -104,7 +95,6 @@ const filteredList = computed(() => {
 
   const q = query.value.toLowerCase();
   
-  // 1. 원본 쿼리로 먼저 검색
   let filtered = listToFilter.filter(item => {
     const name = (item.name || '').toLowerCase();
     const path = (item.path || '').toLowerCase();
@@ -112,7 +102,6 @@ const filteredList = computed(() => {
     return name.includes(q) || path.includes(q) || keywords.includes(q);
   });
 
-  // 2. 결과가 없고, 한글 변환이 가능한 경우 -> 한글로 재검색
   if (filtered.length === 0 && koreanQuery.value && koreanQuery.value !== query.value) {
       const kq = koreanQuery.value;
       filtered = listToFilter.filter(item => {
@@ -134,8 +123,6 @@ const filteredList = computed(() => {
       currentSearchQuery.value = q;
   }
 
-  // 3. 점수 기반 정렬 (Scoring)
-  // currentSearchQuery.value를 기준으로 점수 매김
   const targetQ = currentSearchQuery.value;
 
   return filtered.map(item => {
@@ -143,15 +130,11 @@ const filteredList = computed(() => {
       const name = (item.name || '').toLowerCase();
       const keywords = (item.keywords || '').toLowerCase();
       
-      // (1) 이름 정확도
       if (name === targetQ) score += 1000;          
       else if (name.startsWith(targetQ)) score += 500; 
       else if (name.includes(targetQ)) score += 100;   
 
-      // (2) 키워드 정확도
       if (keywords.includes(targetQ)) score += 80;
-
-      // (3) 실행 횟수 점수
       score += (item.count || 0) * 10;
       
       return { item, score };
@@ -160,18 +143,15 @@ const filteredList = computed(() => {
   .map(wrapper => wrapper.item);     
 });
 
-// 하이라이팅 로직 수정
 const highlight = (text) => {
   if (!query.value || !text) return text;
   try {
-    // 현재 검색에 성공한 쿼리(currentSearchQuery)로 하이라이팅
     const targetQ = currentSearchQuery.value || query.value;
     const escapedQuery = targetQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return text.replace(new RegExp(`(${escapedQuery})`, 'gi'), '<span class="highlight">$1</span>');
   } catch (e) { return text; }
 };
 
-// 키워드 매칭 여부 확인 헬퍼
 const isKeywordMatch = (item) => {
     const q = currentSearchQuery.value;
     return q && item.keywords && item.keywords.includes(q);
@@ -218,6 +198,8 @@ const onListKeydown = (e, item) => {
     nextTick(() => itemRefs.value[focusIndex.value]?.focus());
   } else if (e.key.length === 1) {
       inputRef.value?.focus();
+  } else if (e.key === 'Escape') {
+    closeModal();
   }
 };
 
@@ -234,20 +216,50 @@ const closeModal = () => {
   emit('close');
 };
 
+// ★★★ [수정 1] 전역 ESC 감지 추가 ★★★
+const handleGlobalKeydown = (e) => {
+  if (e.key === 'Escape') {
+    closeModal();
+  }
+};
+
 onMounted(() => {
   nextTick(() => inputRef.value?.focus());
+  // 모달이 켜지면 전역 키보드 감시 시작
+  window.addEventListener('keydown', handleGlobalKeydown);
+});
+
+onUnmounted(() => {
+  // 모달이 꺼지면 감시 해제
+  window.removeEventListener('keydown', handleGlobalKeydown);
 });
 </script>
 
 <style scoped>
 .search-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.4); backdrop-filter: blur(3px);
-  display: flex; justify-content: center; padding-top: 80px; z-index: 99999;
+  position: fixed; 
+  
+  /* ★★★ [수정 2] 타이틀바(45px) 제외하고 아래쪽만 덮기 ★★★ */
+  top: 45px; 
+  left: 0; 
+  width: 100%; 
+  height: calc(100% - 45px); /* 전체 높이에서 타이틀바 높이 뺌 */
+  
+  background: rgba(0,0,0,0.4); 
+  backdrop-filter: blur(3px);
+  display: flex; 
+  justify-content: center; 
+  padding-top: 80px; 
+  z-index: 99999;
 }
+
+/* 아래는 기존 스타일 유지 */
 .search-container {
   width: 650px; max-width: 90%; background: white; border-radius: 10px;
   box-shadow: 0 15px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column; max-height: 600px;
+  /* 모달 높이가 짤릴 경우를 대비해 flex-shrink 설정 */
+  flex-shrink: 1; 
+  min-height: 0;
 }
 .search-header {
   display: flex; align-items: center; padding: 15px; border-bottom: 1px solid #eee;
@@ -275,7 +287,6 @@ onMounted(() => {
 .badge-count { font-size: 11px; color: #e67e22; background: #fff3e0; padding: 1px 5px; border-radius: 4px; font-weight: bold; }
 .badge-keyword { font-size: 11px; color: #888; background: #f0f0f0; padding: 1px 5px; border-radius: 4px; }
 
-/* 한글 변환 힌트 스타일 */
 .kor-hint { margin-top: 10px; font-size: 13px; color: #666; }
 .kor-hint strong { color: #1a73e8; }
 
