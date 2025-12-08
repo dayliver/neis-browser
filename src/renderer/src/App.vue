@@ -85,7 +85,7 @@ import { ref, onMounted } from 'vue';
 import { useRemoteConfig } from './composables/useRemoteConfig';
 import logoSrc from './assets/logo128x128.png'; // 경로 확인 필수!
 
-const CURRENT_VERSION = "1.0.0"; 
+const CURRENT_VERSION = __APP_VERSION__;
 
 const { fetchConfig, checkNotice, markNoticeAsRead, checkAppStatus } = useRemoteConfig();
 
