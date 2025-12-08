@@ -137,9 +137,48 @@ export function useRemoteConfig() {
     return { type: 'normal' };
   };
   
-  // 나머지 checkNotice, markNoticeAsRead 는 기존과 동일하므로 생략하거나 그대로 유지
-  const checkNotice = () => { /* ... */ return config.value.notice?.show ? config.value.notice : null; };
-  const markNoticeAsRead = (id) => { /* ... */ };
+  // ★ 변경: 배열 대신 '마지막 읽은 ID' 하나만 저장
+  const NOTICE_STORAGE_KEY = 'last_read_notice_id';
+
+  // 1. 공지사항 확인
+  const checkNotice = () => {
+    const notice = config.value.notice;
+
+    // 공지가 없거나 show가 false면 표시 안 함
+    if (!notice || !notice.show) return null;
+
+    // 저장된 마지막 ID 확인 (없으면 0)
+    const lastReadId = Number(localStorage.getItem(NOTICE_STORAGE_KEY)) || 0;
+    const currentNoticeId = Number(notice.id);
+
+    // 현재 공지 ID가 마지막으로 읽은 ID보다 작거나 같으면 '이미 읽음'으로 간주
+    // (예: 읽은게 20240502인데 공지가 20240501이면 안 보여줌)
+    if (currentNoticeId <= lastReadId) {
+      return null;
+    }
+
+    // 더 최신 ID인 경우에만 반환
+    return notice;
+  };
+
+  // 2. 공지사항 읽음 처리
+  const markNoticeAsRead = (id) => {
+    if (!id) return;
+
+    try {
+      const lastReadId = Number(localStorage.getItem(NOTICE_STORAGE_KEY)) || 0;
+      const newId = Number(id);
+
+      // ★ 중요: 현재 저장된 ID보다 더 큰(최신) ID일 때만 갱신
+      // 사용자가 옛날 공지를 우연히 보고 닫았을 때, 최신 기록을 덮어쓰지 않도록 방지
+      if (newId > lastReadId) {
+        localStorage.setItem(NOTICE_STORAGE_KEY, newId);
+        console.log(`[RemoteConfig] 공지 읽음 갱신 (Last ID: ${newId})`);
+      }
+    } catch (e) {
+      console.error('[RemoteConfig] 공지 읽음 저장 실패:', e);
+    }
+  };
 
   return { config, fetchConfig, checkNotice, markNoticeAsRead, checkAppStatus };
 }
