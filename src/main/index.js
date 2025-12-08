@@ -148,16 +148,20 @@ function createWindow() {
     }
   });
 
-  // 포커스 복구
+  // ★★★ [수정] 포커스 복구 (Soft Reset) ★★★
+  // blur()는 앱 전환을 유발하므로, AlwaysOnTop 트릭으로 변경합니다.
   ipcMain.on('req-fix-ime-focus', () => {
     if (mainWindow) {
-      mainWindow.blur();
+      // 1. 찰나의 순간 '항상 위'로 설정하여 OS의 시선을 강제로 고정
+      mainWindow.setAlwaysOnTop(true);
+      
+      // 2. 즉시 해제하고 포커스 재확인
+      // (사용자는 눈치채지 못할 정도로 빠름)
       setTimeout(() => {
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.focus();
-          mainWindow.webContents.focus();
-        }
-      }, 50); 
+        mainWindow.setAlwaysOnTop(false);
+        mainWindow.focus();             // 윈도우 활성화
+        mainWindow.webContents.focus(); // Vue 렌더러 활성화
+      }, 1); 
     }
   });
 

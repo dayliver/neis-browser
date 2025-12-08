@@ -115,32 +115,28 @@ const handleNewTabRequest = (...args) => {
   }
 };
 
-// ★★★ [수정] 붙여넣기 요청 핸들러 ★★★
+// ★★★ [수정] 붙여넣기 요청 핸들러 (전체 코드) ★★★
 const handlePasteRequest = async (payload) => {
   console.log('[Vue] 붙여넣기 요청 수신:', payload);
   const webview = getActiveWebview();
   if (!webview) return;
 
+  // Preload가 보내준 텍스트 확인
   const clipboardText = payload.clipboardText;
   if (!clipboardText) {
     console.warn("전달된 텍스트가 없습니다.");
     return;
   }
 
-  // 1. 붙여넣을 데이터 개수 미리 계산
-  // (빈 줄은 제외하고 카운트합니다)
-  const items = clipboardText
-    .split(/[\r\n]+/)                // 줄바꿈으로 자르고
-    .filter(t => t.trim().length > 0); // 공백만 있는 줄 제거
-
+  // 데이터 개수 미리 계산
+  const items = clipboardText.split(/[\r\n]+/).filter(t => t.trim().length > 0);
   const count = items.length;
   if (count === 0) return;
 
   const row = payload.startRow;
-  
-  // 2. 메시지 수정: "n행부터 m개의 자료를..."
   const msg = `[나이스브라우저]\n\n${row}행부터 총 ${count}개의 자료를 붙여넣으시겠습니까?\n(기존 내용은 덮어씌워집니다)`;
 
+  // 사용자 확인
   if(confirm(msg)) {
     
     // 원격 스크립트 실행
@@ -150,9 +146,36 @@ const handlePasteRequest = async (payload) => {
       selectorSuffix: payload.selectorSuffix
     });
 
-    if (!res.success) {
-      console.error("Paste Script Error:", res.error);
-      alert("붙여넣기 중 오류가 발생했습니다.\n" + (res.error || 'Unknown Error'));
+    // 실행 결과 처리
+    if (res.success && res.result && res.result.success) {
+      const { pasted, remaining } = res.result.report;
+      
+      let resultMsg = `✅ 작업 완료!\n\n- 성공: ${pasted}건`;
+      if (remaining > 0) resultMsg += `\n- 생략: ${remaining}건 (입력칸 부족)`;
+      
+      // 1. 사용자에게 결과 알림 (사용자가 '확인'을 누르는 순간 물리적 입력 발생)
+      alert(resultMsg);
+
+      // 2. [Renderer] 웹뷰 태그 자체에 포커스 강제 부여
+      // (알림창이 닫히면 포커스가 body나 button으로 튀는 것을 방지)
+      const activeTab = tabs.value.find(t => t.id === currentTabId.value);
+      if (activeTab && activeTab.webview) {
+        activeTab.webview.blur(); // 상태 리셋
+        setTimeout(() => {
+          activeTab.webview.focus(); // 다시 포커스
+        }, 50);
+      }
+
+      // 3. [Main] 윈도우 OS 차원의 포커스 고정 요청 (Soft Reset)
+      // (Main Process에서 setAlwaysOnTop 트릭을 사용하여 앱 전환 방지 및 IME 채널 복구)
+      if (window.electron?.ipcRenderer) {
+         window.electron.ipcRenderer.send('req-fix-ime-focus');
+      }
+
+    } else {
+      // 에러 처리
+      console.error("Paste Script Error:", res.error || res.result?.error);
+      alert("붙여넣기 중 오류가 발생했습니다.\n" + (res.error || res.result?.error || 'Unknown Error'));
     }
   }
 };

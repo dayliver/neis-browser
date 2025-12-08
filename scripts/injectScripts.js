@@ -140,81 +140,85 @@ module.exports = {
 
   // =================================================================
   // 3. 일괄 붙여넣기 (pasteToGrid)
-  // ★★★ [핵심] Preload.js의 pasteArray 로직 이식 ★★★
   // =================================================================
-  // 주의: 이 함수는 async 함수여야 합니다.
   pasteToGrid: `(async function(payload) {
     ${COMMON_UTILS}
     ${INPUT_GUARD_SCRIPT}
 
     const { clipboardText, startRow, selectorSuffix } = payload;
     
-    // 데이터 파싱 (간이 구현: 탭/엔터 구분)
-    // 실제로는 클립보드 원본 데이터를 보내거나, 여기서 split 처리
+    // 데이터 파싱
     const array = clipboardText.split(/[\\r\\n]+/).filter(t => t.trim().length > 0).map(normalizeToKeyboardChars);
 
     if (array.length === 0) return { success: false, msg: "데이터 없음" };
 
     InputGuard.lock();
 
+    let successCount = 0;
+    let skippedCount = 0;
+
     try {
       for (let i = 0; i < array.length; i++) {
-        // 비상 탈출 체크
+        // 비상 탈출
         if (!document.getElementById('neis-guard-overlay')) InputGuard.lock();
 
         const row = startRow + i;
         const text = array[i];
         
-        // NEIS 그리드 셀 Selector (aria-label 활용)
+        // 셀 찾기
         const selector = \`div[aria-label^="\${row}행"][aria-label*="\${selectorSuffix}"]\`;
         const element = document.querySelector(selector);
         
+        // [조건 2] 마지막 행을 지나서 더 이상 입력할 칸이 없는 경우 -> 중단
         if (!element) {
-            console.warn(\`[스킵] \${row}행 요소를 찾을 수 없음\`);
-            continue;
+            skippedCount = array.length - i; // 남은 개수 계산
+            break; // 루프 종료
         }
 
-        // 1. 클릭 시뮬레이션
+        // 클릭 및 입력 로직
         await simulateClick(element, 150);
 
         let activeInput = document.activeElement;
-
-        // 2. 포커스 확인 (재시도)
         if (!activeInput || (activeInput.tagName !== 'TEXTAREA' && activeInput.tagName !== 'INPUT')) {
             await new Promise(r => setTimeout(r, 100));
             activeInput = document.activeElement;
         }
 
-        // 3. 값 입력
         if (activeInput && (activeInput.tagName === 'TEXTAREA' || activeInput.tagName === 'INPUT')) {
           activeInput.focus();
           activeInput.select();
           
-          // execCommand 시도
           const success = document.execCommand('insertText', false, text);
-          
-          // 실패 시 Native Setter 사용
           if (!success) {
               const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
               nativeSetter.call(activeInput, text);
               activeInput.dispatchEvent(new Event('input', { bubbles: true }));
           }
-
-          // 엔터키 (저장 트리거)
           await new Promise(r => setTimeout(r, 50)); 
           activeInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', keyCode: 13 }));
           
+          successCount++; // 성공 카운트 증가
         } else {
           console.error(\`[실패] \${row}행 - 입력창 활성화 실패\`);
         }
         
-        // 다음 셀 이동 전 딜레이
         await new Promise(r => setTimeout(r, 100));
       }
-      return { success: true };
+
+      // 마무리 대기
+      await new Promise(r => setTimeout(r, 200));
+
+      // 포커스 초기화 (안전장치)
+      if (document.activeElement) document.activeElement.blur();
+      window.focus();
+
+      // ★ 결과 리포트 반환
+      return { 
+        success: true, 
+        report: { total: array.length, pasted: successCount, remaining: skippedCount } 
+      };
 
     } catch (e) {
-      console.error("Paste Error:", e);
       return { success: false, error: e.message };
     } finally {
       InputGuard.unlock();
