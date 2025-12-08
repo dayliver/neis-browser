@@ -228,6 +228,39 @@ app.whenReady().then(() => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+
+  app.on('web-contents-created', (event, contents) => {
+    // 생성된 화면이 'webview' 태그에 의한 것인지 확인
+    if (contents.getType() === 'webview') {
+      
+      // ★ 이 webview에서 발생하는 모든 "새 창 띄우기" 요청을 가로챕니다.
+      contents.setWindowOpenHandler((details) => {
+        const { url } = details;
+        
+        console.log('[Main] Popup intercepted:', url);
+
+        // 1. 업무 포털 관련 URL이면 -> 탭으로 열기
+        // (URL이 길거나, 특정 도메인이면 업무 화면으로 간주)
+        if (url.includes('neis.go.kr') || url.includes('edufine') || url.length > 50) {
+          
+          // 현재 포커스된 메인 윈도우 찾기
+          const win = contents.getOwnerBrowserWindow && contents.getOwnerBrowserWindow(); 
+          // 혹은 모든 윈도우에 뿌리기 (간단한 방법)
+          // const win = BrowserWindow.getAllWindows()[0];
+
+          if (win) {
+            // Vue로 신호를 보냅니다 "야, 새 탭 만들어!"
+            win.webContents.send('request-new-tab', url);
+          }
+          
+          return { action: 'deny' }; // "새 창 띄우기는 거절한다"
+        }
+
+        // 2. 그 외(주소검색, 파일다운로드 등 진짜 팝업)는 허용
+        return { action: 'allow' };
+      });
+    }
+  });
 })
 
 app.on('window-all-closed', () => {

@@ -1,6 +1,6 @@
 {
   "name": "neis-browser",
-  "version": "0.7.6",
+  "version": "0.8.0",
   "description": "Web Browser only for NEIS",
   "main": "./out/main/index.js",
   "author": "https://hwaryong.com",
@@ -75,7 +75,7 @@
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "dotenv": "^17.2.3",
-    "electron": "^38.1.2",
+    "electron": "^38.7.2",
     "electron-builder": "^25.1.8",
     "electron-vite": "^4.0.1",
     "eslint": "^9.36.0",
