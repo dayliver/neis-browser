@@ -39,7 +39,22 @@ defineEmits(['update:id', 'update:password', 'save', 'close']);
 </script>
 
 <style scoped>
-.modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); display: flex; justify-content: center; align-items: center; z-index: 99999; }
+.modal-overlay {
+  position: fixed;
+  /* ★ [수정] 타이틀바 높이(45px)만큼 내림 */
+  top: 45px; 
+  left: 0;
+  width: 100vw;
+  /* ★ [수정] 전체 높이에서 타이틀바 제외 */
+  height: calc(100vh - 45px); 
+  
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 99999;
+}
 .modal-content { background: white; padding: 25px; border-radius: 12px; width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
 .warning { font-size: 12px; color: #e74c3c; margin-bottom: 15px; }
 .input-group { margin-bottom: 15px; }

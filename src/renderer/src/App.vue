@@ -48,7 +48,7 @@
 
     <router-view v-else></router-view>
 
-    <div v-if="showWarningModal" class="block-overlay" style="background: rgba(0,0,0,0.7);">
+    <div v-if="showWarningModal" class="block-overlay with-titlebar" style="background: rgba(0,0,0,0.7);">
       <div class="block-content">
         <div class="icon">⚠️</div>
         <h2>서비스 알림</h2>
@@ -60,7 +60,7 @@
       </div>
     </div>
 
-    <div v-if="noticeData" class="notice-overlay">
+    <div v-if="noticeData" class="notice-overlay with-titlebar">
       <div class="notice-content">
         <div class="notice-header">
           <h3>📢 {{ noticeData.title }}</h3>
@@ -221,6 +221,11 @@ html, body, #app {
   border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
   display: flex; flex-direction: column; overflow: hidden;
   animation: slideUp 0.3s ease-out;
+}
+.block-overlay.with-titlebar,
+.notice-overlay.with-titlebar {
+  top: 45px; /* 타이틀바 높이 */
+  height: calc(100% - 45px); /* 남은 공간만 차지 */
 }
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
