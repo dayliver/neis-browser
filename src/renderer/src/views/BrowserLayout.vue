@@ -43,6 +43,11 @@
       @execute="executeMenu"
     />
 
+    <LogViewerModal 
+      v-if="showLogModal"
+      @close="showLogModal = false"
+    />
+
   </div>
 </template>
 
@@ -54,15 +59,18 @@ import { useRouter } from 'vue-router';
 import BrowserTitleBar from '../components/BrowserTitleBar.vue';
 import LoginModal from '../components/LoginModal.vue';
 import MenuSearchModal from '../components/MenuSearchModal.vue';
+import LogViewerModal from '../components/LogViewerModal.vue';
 
 // 로직(Composables) 임포트
 import { useTabs } from '../composables/useTabs';
 import { usePassword } from '../composables/usePassword';
 import { useMenuSearch } from '../composables/useMenuSearch';
-import { useScriptExecutor } from '../composables/useScriptExecutor'; // ★ 실행기 추가
+import { useScriptExecutor } from '../composables/useScriptExecutor';
+import { useLogViewer } from '../composables/useLogViewer';
 
 const router = useRouter();
 const preloadPath = ref('');
+const { showLogModal } = useLogViewer();
 
 const { tabs, currentTabId, createTab, updateTitle, getActiveWebview } = useTabs();
 const { showLoginModal, loginForm, loadSavedPassword, saveLoginInfo, setupPasswordListeners } = usePassword(getActiveWebview);

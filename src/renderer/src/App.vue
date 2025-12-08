@@ -13,7 +13,7 @@
         나이스브라우저
       </h1>
       <p class="text-gray-500 text-xs mb-10 tracking-wide">
-        안전한 교육 환경을 위한 전용 브라우저
+        NEIS 업무, 더 빠르고 똑똑하게
       </p>
 
       <div class="relative flex items-center justify-center">
@@ -92,7 +92,7 @@ const { fetchConfig, checkNotice, markNoticeAsRead, checkAppStatus } = useRemote
 const isLoading = ref(true);
 const appStatus = ref({ type: 'normal' });
 const noticeData = ref(null);
-const showWarningModal = ref(false); 
+const showWarningModal = ref(false);
 
 const closeApp = () => window.close();
 const goUpdate = () => { if (appStatus.value.url) window.open(appStatus.value.url); };
@@ -138,6 +138,7 @@ onMounted(async () => {
     isLoading.value = false;
   }
 });
+;
 </script>
 
 <style>

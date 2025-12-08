@@ -11,7 +11,9 @@ const api = {
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
   encryptPassword: (text) => ipcRenderer.invoke('encrypt-password', text),
   decryptPassword: (hex) => ipcRenderer.invoke('decrypt-password', hex),
-  getPreloadPath: () => ipcRenderer.invoke('get-preload-path')
+  getPreloadPath: () => ipcRenderer.invoke('get-preload-path'),
+  getSystemLog: (size) => ipcRenderer.invoke('get-system-log', size),
+  deleteSystemLog: () => ipcRenderer.invoke('delete-system-log')
 }
 
 if (process.contextIsolated) {

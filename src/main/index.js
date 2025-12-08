@@ -4,6 +4,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { autoUpdater } from 'electron-updater'
+import { statSync, createReadStream, writeFileSync, existsSync } from 'fs'
 
 app.name = '나이스브라우저';
 
@@ -168,6 +169,57 @@ app.whenReady().then(() => {
   ipcMain.on('req-window-maximize', () => {
     if (mainWindow && !mainWindow.isMaximized()) {
       mainWindow.maximize();
+    }
+  });
+
+  const getLogPath = () => {
+    return join(app.getPath('userData'), 'logs/main.log');
+  };
+
+  ipcMain.handle('get-system-log', async (event, readSizeBytes = 51200) => {
+    const logPath = getLogPath();
+    
+    if (!existsSync(logPath)) {
+      return "로그 파일이 존재하지 않습니다.";
+    }
+
+    try {
+      // 1. 파일 전체 크기 확인
+      const stats = statSync(logPath);
+      const fileSize = stats.size;
+
+      // 2. 읽기 시작 위치 계산 (파일 끝 - 요청한 크기)
+      // 파일이 요청 크기보다 작으면 0부터 읽음
+      const start = Math.max(0, fileSize - readSizeBytes);
+      
+      // 3. 스트림으로 해당 부분만 읽기
+      return new Promise((resolve, reject) => {
+        const stream = createReadStream(logPath, { start, encoding: 'utf8' });
+        let data = '';
+        
+        stream.on('data', (chunk) => { data += chunk; });
+        stream.on('end', () => { 
+          // 앞부분이 잘릴 수 있으므로 "[...이전 로그 생략...]" 표시 추가
+          const prefix = start > 0 ? `... (이전 로그 ${Math.floor(start/1024)}KB 생략) ...\n\n` : '';
+          resolve(prefix + data); 
+        });
+        stream.on('error', (err) => reject(err.message));
+      });
+
+    } catch (err) {
+      return `로그 읽기 실패: ${err.message}`;
+    }
+  });
+
+  ipcMain.handle('delete-system-log', async () => {
+    const logPath = getLogPath();
+    try {
+      // 파일 내용을 빈 문자열로 덮어쓰기
+      writeFileSync(logPath, '');
+      return true;
+    } catch (error) {
+      console.error('로그 삭제 실패:', error);
+      return false;
     }
   });
 

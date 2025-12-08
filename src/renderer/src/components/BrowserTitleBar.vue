@@ -24,6 +24,8 @@
       <ActionButton icon="search" label="메뉴 검색(F3 또는 Ctrl+F)" @click="openMenuSearch" />
       <ActionButton icon="lock" label="비밀번호 설정" @click="showLoginModal = true" />
       <ActionButton icon="location" label="지역변경" variant="danger" @click="goRegionSelect" />
+      <ActionButton icon="log" label="로그 보기" @click="openLogViewer" />
+
       <!-- <ActionButton emoji="🐞" @click="openDevTools" /> -->
     </div>
 
@@ -39,7 +41,8 @@ import appIcon from '../assets/icons/icon.png'; // 상대 경로로 import (경�
 // Composables
 import { useTabs } from '../composables/useTabs';
 import { usePassword } from '../composables/usePassword';
-import { useMenuSearch } from '../composables/useMenuSearch'; 
+import { useMenuSearch } from '../composables/useMenuSearch';
+import { useLogViewer } from '../composables/useLogViewer';
 
 const router = useRouter();
 
@@ -47,6 +50,7 @@ const router = useRouter();
 const { tabs, currentTabId, switchTab, closeTab, getActiveWebview } = useTabs();
 const { showLoginModal } = usePassword(getActiveWebview);
 const { openMenuSearch } = useMenuSearch();
+const { openLogViewer } = useLogViewer();
 
 // 단순 UI 액션
 const refreshTab = () => getActiveWebview()?.reload();

@@ -14,6 +14,7 @@ const defaultConfig = {
   version: "0.0.0",
   app: { latestVersion: "0.0.0", updateUrl: "", status: "active", statusMessage: "" },
   features: { enablePaste: true, enableSearch: true },
+  logViewer: { readSizeKB: 50 },
   notice: { id: 0, show: false, title: "", content: "", type: "info", link: "" },
   decodedScripts: null
 };
