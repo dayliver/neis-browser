@@ -33,7 +33,14 @@ function getRowNumber(el) {
 function getSelectorSuffix(el) {
   if (!el) return null;
   const aria = el.getAttribute('aria-label') ?? '';
-  const m = aria.match(/^\d+행\s*(특기사항|행동특성 및 종합의견|희망분야)/);
+  
+  // [수정 전] const m = aria.match(/^\d+행\s*(특기사항|행동특성 및 종합의견|희망분야)/);
+  
+  // ★ [수정 후] 
+  // 1. \s* 대신 .* 사용 -> "마지막 열" 같은 중간 텍스트 무시
+  // 2. '세부능력 및 특기사항' 키워드 추가 (긴 단어를 먼저 쓰는 것이 안전함)
+  const m = aria.match(/^\d+행.*(세부능력 및 특기사항|특기사항|행동특성 및 종합의견|희망분야)/);
+  
   return m ? m[1] : null;
 }
 
