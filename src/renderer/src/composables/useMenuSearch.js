@@ -1,6 +1,8 @@
 import { ref } from 'vue';
 import { useTabs } from './useTabs';
 import { useScriptExecutor } from './useScriptExecutor';
+// ★ [신규] 모달 사용을 위한 Import
+import { useModal } from './useModal';
 
 const menuData = ref([]);
 const isSearchOpen = ref(false);
@@ -134,8 +136,11 @@ function processMenuData(menuData) {
 }
 
 export function useMenuSearch() {
-  const { getActiveWebview, blurActiveWebview } = useTabs();
+  // ★ [수정] focusActiveWebview 추가 가져오기
+  const { getActiveWebview, blurActiveWebview, focusActiveWebview } = useTabs();
   const { runRemoteScript } = useScriptExecutor();
+  // ★ [신규] 모달 인스턴스
+  const modal = useModal();
 
   const setupMenuListeners = () => {
     if (!window.electron?.ipcRenderer) return;
@@ -164,19 +169,16 @@ export function useMenuSearch() {
 
     if (isSearchOpen.value) {
       isSearchOpen.value = false;
+      // 닫을 때도 안전하게 포커스 복구
+      focusActiveWebview();
       return;
     }
 
-    // ★★★ [1] Renderer 차원 방어: 웹뷰 포커스 해제 ★★★
-    blurActiveWebview();
-    
-    // ★★★ [2] Renderer 차원 방어: 윈도우 포커스 ★★★
-    window.focus();
-
-    // ★★★ [3] Main Process 차원 방어: OS 입력 채널 강제 회수 (핵심) ★★★
+    // ★ 3중 방어막 가동
+    blurActiveWebview(); // 1. 기존 포커스 제거
+    window.focus();      // 2. Vue 앱 포커스
     if (window.electron && window.electron.ipcRenderer) {
-      // preload에 fixImeFocus가 없어도 직접 호출 가능하도록 처리
-      window.electron.ipcRenderer.send('req-fix-ime-focus');
+      window.electron.ipcRenderer.send('req-fix-ime-focus'); // 3. Main Process 지원 사격
     }
 
     if (Array.isArray(menuData.value) && menuData.value.length > 0) {
@@ -187,10 +189,16 @@ export function useMenuSearch() {
     console.log('[MenuSearch] 데이터 없음 -> 수집 시작');
     autoFetchMenuData(true);
     
-    setTimeout(() => {
-       if(!Array.isArray(menuData.value) || menuData.value.length === 0) alert("데이터를 불러오는 중입니다... 잠시 후 다시 시도해주세요.");
-       else {
-         // 데이터 로드 후 열릴 때도 동일한 3중 방어막 가동
+    // 데이터 로딩 대기
+    setTimeout(async () => {
+       if(!Array.isArray(menuData.value) || menuData.value.length === 0) {
+         // ★ [수정] 네이티브 alert -> 커스텀 modal.alert 사용
+         await modal.alert("알림", "데이터를 불러오는 중입니다... 잠시 후 다시 시도해주세요.");
+         
+         // ★ [신규] 모달 확인 후 포커스 복구 (Webview 클릭 시뮬레이션)
+         focusActiveWebview();
+       } else {
+         // 데이터 로드 성공 시 열기
          blurActiveWebview();
          window.focus();
          if (window.electron && window.electron.ipcRenderer) {
@@ -233,9 +241,14 @@ export function useMenuSearch() {
 
     if (!res.success) {
       console.error("[Vue] 실행 실패:", res.error);
-      alert("실행 중 오류가 발생했습니다.");
+      // ★ [수정] 에러 알림도 커스텀 모달로
+      await modal.alert("오류", "실행 중 오류가 발생했습니다.");
+      // 에러 확인 후 포커스 복구
+      focusActiveWebview();
     } else {
       isSearchOpen.value = false;
+      // 성공적으로 메뉴 실행 후에도 포커스를 Webview로 돌려줌
+      focusActiveWebview();
     }
   };
 

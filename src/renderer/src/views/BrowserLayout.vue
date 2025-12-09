@@ -68,14 +68,21 @@ import { useMenuSearch } from '../composables/useMenuSearch';
 import { useScriptExecutor } from '../composables/useScriptExecutor';
 import { useLogViewer } from '../composables/useLogViewer';
 
+// ★ [신규] useModal 임포트
+import { useModal } from '../composables/useModal';
+
 const router = useRouter();
 const preloadPath = ref('');
 const { showLogModal } = useLogViewer();
 
-const { tabs, currentTabId, createTab, updateTitle, getActiveWebview } = useTabs();
+// ★ [신규] focusActiveWebview 함수 가져오기
+const { tabs, currentTabId, createTab, updateTitle, getActiveWebview, focusActiveWebview } = useTabs();
 const { showLoginModal, loginForm, loadSavedPassword, saveLoginInfo, setupPasswordListeners } = usePassword(getActiveWebview);
 const { menuData, isSearchOpen, setupMenuListeners, executeMenu, autoFetchMenuData } = useMenuSearch();
-const { runRemoteScript } = useScriptExecutor(); // ★ 실행기 사용
+const { runRemoteScript } = useScriptExecutor(); 
+
+// ★ [신규] 모달 사용 준비
+const modal = useModal();
 
 // 1. 웹뷰 로딩 핸들러
 const onWebviewLoad = (tab) => {
@@ -91,7 +98,9 @@ const onWebviewLoad = (tab) => {
   if (currentTitle.includes('나이스') || currentTitle.includes('업무포털') || currentTitle.includes('NEIS')) {
       console.log('Vue: 메인 화면 감지 -> 데이터 수집 시작');
       if(autoFetchMenuData) autoFetchMenuData(true);
-      if(tab.webview) tab.webview.focus();
+      
+      // 로딩 완료 후에도 포커스를 확실히 잡기 위해 실행
+      if(tab.webview) focusActiveWebview();
   }
 };
 
@@ -106,39 +115,35 @@ const handleNewTabRequest = (...args) => {
   
   if (foundUrl) {
     createTab(foundUrl, '로딩중...');
-
-    // ★★★ [이동됨] 여기서 전체화면 요청! ★★★
-    // 즉, 로그인 후 업무 시스템이 팝업으로 뜰 때 창이 커집니다.
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.send('req-window-maximize');
     }
   }
 };
 
-// ★★★ [수정] 붙여넣기 요청 핸들러 (전체 코드) ★★★
+// ★★★ [핵심 수정] 붙여넣기 요청 핸들러 ★★★
 const handlePasteRequest = async (payload) => {
   console.log('[Vue] 붙여넣기 요청 수신:', payload);
   const webview = getActiveWebview();
   if (!webview) return;
 
-  // Preload가 보내준 텍스트 확인
   const clipboardText = payload.clipboardText;
   if (!clipboardText) {
     console.warn("전달된 텍스트가 없습니다.");
     return;
   }
 
-  // 데이터 개수 미리 계산
   const items = clipboardText.split(/[\r\n]+/).filter(t => t.trim().length > 0);
   const count = items.length;
   if (count === 0) return;
 
   const row = payload.startRow;
-  const msg = `[나이스브라우저]\n\n${row}행부터 총 ${count}개의 자료를 붙여넣으시겠습니까?\n(기존 내용은 덮어씌워집니다)`;
+  const msg = `${row}행부터 총 ${count}개의 자료를 붙여넣으시겠습니까?\n(기존 내용은 덮어씌워집니다)`;
 
-  // 사용자 확인
-  if(confirm(msg)) {
-    
+  // [수정] 네이티브 confirm 대신 커스텀 모달 사용 (await)
+  const isConfirmed = await modal.confirm('붙여넣기 확인', msg);
+
+  if(isConfirmed) {
     // 원격 스크립트 실행
     const res = await runRemoteScript(webview, 'pasteToGrid', {
       clipboardText: clipboardText,
@@ -146,37 +151,26 @@ const handlePasteRequest = async (payload) => {
       selectorSuffix: payload.selectorSuffix
     });
 
-    // 실행 결과 처리
     if (res.success && res.result && res.result.success) {
       const { pasted, remaining } = res.result.report;
       
-      let resultMsg = `✅ 작업 완료!\n\n- 성공: ${pasted}건`;
+      let resultMsg = `✅ 작업 완료!\n- 성공: ${pasted}건`;
       if (remaining > 0) resultMsg += `\n- 생략: ${remaining}건 (입력칸 부족)`;
       
-      // 1. 사용자에게 결과 알림 (사용자가 '확인'을 누르는 순간 물리적 입력 발생)
-      alert(resultMsg);
+      // [수정] 네이티브 alert 대신 커스텀 모달 사용
+      await modal.alert('완료', resultMsg);
 
-      // 2. [Renderer] 웹뷰 태그 자체에 포커스 강제 부여
-      // (알림창이 닫히면 포커스가 body나 button으로 튀는 것을 방지)
-      const activeTab = tabs.value.find(t => t.id === currentTabId.value);
-      if (activeTab && activeTab.webview) {
-        activeTab.webview.blur(); // 상태 리셋
-        setTimeout(() => {
-          activeTab.webview.focus(); // 다시 포커스
-        }, 50);
-      }
-
-      // 3. [Main] 윈도우 OS 차원의 포커스 고정 요청 (Soft Reset)
-      // (Main Process에서 setAlwaysOnTop 트릭을 사용하여 앱 전환 방지 및 IME 채널 복구)
-      if (window.electron?.ipcRenderer) {
-         window.electron.ipcRenderer.send('req-fix-ime-focus');
-      }
+      // ★ [Plan C 적용] 모달이 닫힌 직후 "강제 클릭 시뮬레이션"으로 포커스 복구
+      focusActiveWebview();
 
     } else {
-      // 에러 처리
       console.error("Paste Script Error:", res.error || res.result?.error);
-      alert("붙여넣기 중 오류가 발생했습니다.\n" + (res.error || res.result?.error || 'Unknown Error'));
+      await modal.alert('오류 발생', "붙여넣기 중 오류가 발생했습니다.\n" + (res.error || res.result?.error || 'Unknown Error'), '닫기');
+      focusActiveWebview();
     }
+  } else {
+    // 취소했을 때도 원래 작업하던 곳으로 포커스 돌려주기
+    focusActiveWebview();
   }
 };
 
@@ -184,7 +178,7 @@ onMounted(async () => {
   setupMenuListeners();     
   setupPasswordListeners(); 
 
-  // Preload 경로
+  // Preload 경로 설정
   if (window.electron?.ipcRenderer) {
     try {
       const rawPath = await window.electron.ipcRenderer.getPreloadPath();
@@ -192,21 +186,19 @@ onMounted(async () => {
     } catch (e) { console.error(e); }
   }
 
-  // 탭 생성
+  // 초기 탭 생성
   const savedData = localStorage.getItem('user_region');
   if (!savedData) { router.push({ name: 'SelectRegion' }); return; }
   const region = JSON.parse(savedData);
   if (tabs.value.length === 0) createTab(region.url, `${region.name} 업무포털`);
 
-  // 비밀번호 로드
   await loadSavedPassword();
 
-  // 리스너 등록
   if (window.electron?.ipcRenderer) {
     window.electron.ipcRenderer.removeAllListeners('request-new-tab');
     window.electron.ipcRenderer.on('request-new-tab', handleNewTabRequest);
 
-    // ★ 붙여넣기 리스너 등록
+    // 붙여넣기 리스너
     window.electron.ipcRenderer.removeAllListeners('req-paste-grid');
     window.electron.ipcRenderer.on('req-paste-grid', handlePasteRequest);
   }

@@ -25,6 +25,7 @@
         VER {{ CURRENT_VERSION }}
       </div>
     </div>
+
     <div v-else-if="appStatus.type === 'block'" class="block-overlay">
       <div class="block-content">
         <div class="icon">🚫</div>
@@ -77,13 +78,18 @@
       </div>
     </div>
 
+    <GlobalModal />
+
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRemoteConfig } from './composables/useRemoteConfig';
-import logoSrc from './assets/logo128x128.png'; // 경로 확인 필수!
+import logoSrc from './assets/logo128x128.png';
+
+// ★ [신규 Import] 전역 모달 컴포넌트
+import GlobalModal from './components/GlobalModal.vue';
 
 const CURRENT_VERSION = __APP_VERSION__;
 
@@ -119,7 +125,6 @@ const checkAndShowNotice = () => {
 
 onMounted(async () => {
   try {
-    // await new Promise(resolve => setTimeout(resolve, 1500)); // 테스트용 딜레이
     await fetchConfig();
     const status = checkAppStatus(CURRENT_VERSION);
     appStatus.value = status;
@@ -138,7 +143,6 @@ onMounted(async () => {
     isLoading.value = false;
   }
 });
-;
 </script>
 
 <style>
@@ -152,27 +156,21 @@ html, body, #app {
 
 .font-malgun { font-family: 'Malgun Gothic', sans-serif; }
 
-/* ★★★ [신규] 강제 중앙 정렬용 클래스 ★★★ */
-/* Tailwind가 안 먹힐 때를 대비한 확실한 보험입니다 */
 .startup-overlay {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100vw;   /* 뷰포트 전체 너비 */
-  height: 100vh;  /* 뷰포트 전체 높이 */
+  width: 100vw;   
+  height: 100vh; 
   z-index: 9999;
   background-color: #dadada;
-  
-  /* Flexbox 강제 적용 */
   display: flex !important;
   flex-direction: column !important;
-  align-items: center !important;     /* 가로 중앙 */
-  justify-content: center !important; /* 세로 중앙 */
-  
+  align-items: center !important;    
+  justify-content: center !important;
   user-select: none;
 }
 
-/* 로고 애니메이션 */
 @keyframes bounce-slow {
   0%, 100% { transform: translateY(-3%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
   50% { transform: translateY(0); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
@@ -181,7 +179,6 @@ html, body, #app {
   animation: bounce-slow 3s infinite;
 }
 
-/* 기존 오버레이들 스타일 유지 */
 .block-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: #dadada; z-index: 999999;
@@ -209,7 +206,6 @@ html, body, #app {
 .block-content button:hover { background: #555; }
 .button-group { display: flex; justify-content: center; }
 
-/* 공지사항 모달 등 나머지 CSS는 기존 유지 */
 .notice-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0,0,0,0.5); z-index: 999990; 
@@ -224,8 +220,8 @@ html, body, #app {
 }
 .block-overlay.with-titlebar,
 .notice-overlay.with-titlebar {
-  top: 45px; /* 타이틀바 높이 */
-  height: calc(100% - 45px); /* 남은 공간만 차지 */
+  top: 45px; 
+  height: calc(100% - 45px); 
 }
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }

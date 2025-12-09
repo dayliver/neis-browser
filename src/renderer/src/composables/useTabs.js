@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 
+// 상태를 전역으로 유지 (싱글톤 패턴)
 const tabs = ref([]);
 const currentTabId = ref(null);
 
@@ -12,7 +13,10 @@ export function useTabs() {
     return currentTab.value?.webview;
   };
 
-  // ★★★ [업그레이드] Deep Blur 기능 ★★★
+  /**
+   * [포커스 제거]
+   * Webview가 포커스를 쥐고 있으면 Vue의 단축키나 입력창이 안 먹힐 때 사용
+   */
   const blurActiveWebview = () => {
     const webview = getActiveWebview();
     if (webview) {
@@ -20,18 +24,47 @@ export function useTabs() {
         // 1. [External] Vue 쪽에서 웹뷰 태그 포커스 해제
         webview.blur(); 
         
-        // 2. [Internal] 웹뷰 내부로 침투해서 포커스 강제 해제 (좀비 포커스 사살)
-        // 붙여넣기 직후 Input에 남아있는 IME 연결을 끊습니다.
+        // 2. [Internal] 웹뷰 내부로 침투해서 포커스 강제 해제
         webview.executeJavaScript(`
           if (document.activeElement && typeof document.activeElement.blur === 'function') {
             document.activeElement.blur();
-            // 포커스를 body나 null로 날려버림
             window.focus(); 
           }
-        `).catch(() => {}); // 에러 무시 (이미 죽은 경우 등)
-
+        `).catch(() => {});
       } catch (e) { /* 무시 */ }
     }
+  };
+
+  /**
+   * ★ [포커스 복구 - 핵심 로직] ★
+   * 모달이 닫힌 후 "좀비 포커스" 상태(입력 불가)를 방지하기 위해
+   * 강제로 포커스를 주고 "가짜 클릭"을 발생시켜 IME를 깨웁니다.
+   */
+  const focusActiveWebview = () => {
+    const webview = getActiveWebview();
+    if (!webview) return;
+
+    // 1. 기본 포커스 시도
+    webview.focus();
+
+    // 2. [Plan C] 클릭 시뮬레이션 (IME Wake-up)
+    // OS가 "사용자가 이곳을 클릭했다"고 착각하게 만듭니다.
+    webview.executeJavaScript(`
+      (function() {
+        try {
+          const el = document.activeElement || document.body;
+          if (el) {
+            // 마우스 클릭 이벤트 강제 발생
+            const opts = { bubbles: true, cancelable: true, view: window };
+            el.dispatchEvent(new MouseEvent('mousedown', opts));
+            el.dispatchEvent(new MouseEvent('mouseup', opts));
+            
+            // 다시 한 번 포커스 확인
+            el.focus();
+          }
+        } catch(e) {}
+      })();
+    `).catch(() => {});
   };
 
   const createTab = (url, title = '새 탭') => {
@@ -63,6 +96,7 @@ export function useTabs() {
     currentTab,
     getActiveWebview,
     blurActiveWebview,
+    focusActiveWebview, // ★ 추가됨
     createTab,
     closeTab,
     switchTab,

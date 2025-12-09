@@ -1,6 +1,6 @@
 {
   "name": "neis-browser",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Web Browser only for NEIS",
   "main": "./out/main/index.js",
   "author": "https://hwaryong.com",
